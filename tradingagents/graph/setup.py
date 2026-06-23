@@ -53,6 +53,13 @@ class GraphSetup:
             delete_nodes["market"] = create_msg_delete()
             tool_nodes["market"] = self.tool_nodes["market"]
 
+        if "market_technician" in selected_analysts:
+            analyst_nodes["market_technician"] = create_market_technician(
+                self.quick_thinking_llm
+            )
+            delete_nodes["market_technician"] = create_msg_delete()
+            tool_nodes["market_technician"] = self.tool_nodes["market_technician"]
+
         if "social" in selected_analysts:
             analyst_nodes["social"] = create_social_media_analyst(
                 self.quick_thinking_llm
@@ -73,6 +80,9 @@ class GraphSetup:
             )
             delete_nodes["fundamentals"] = create_msg_delete()
             tool_nodes["fundamentals"] = self.tool_nodes["fundamentals"]
+
+        # Quantitative Analyst (Markov 2.0): deterministic, runs first, no tools/LLM
+        quantitative_analyst_node = create_quantitative_analyst()
 
         # Create researcher and manager nodes
         bull_researcher_node = create_bull_researcher(self.quick_thinking_llm)
@@ -98,6 +108,7 @@ class GraphSetup:
             workflow.add_node(f"tools_{analyst_type}", tool_nodes[analyst_type])
 
         # Add other nodes
+        workflow.add_node("Quantitative Analyst", quantitative_analyst_node)
         workflow.add_node("Bull Researcher", bull_researcher_node)
         workflow.add_node("Bear Researcher", bear_researcher_node)
         workflow.add_node("Research Manager", research_manager_node)
@@ -108,9 +119,10 @@ class GraphSetup:
         workflow.add_node("Portfolio Manager", portfolio_manager_node)
 
         # Define edges
-        # Start with the first analyst
+        # Quantitative Analyst (Markov 2.0) runs first, then the analyst chain.
         first_analyst = selected_analysts[0]
-        workflow.add_edge(START, f"{first_analyst.capitalize()} Analyst")
+        workflow.add_edge(START, "Quantitative Analyst")
+        workflow.add_edge("Quantitative Analyst", f"{first_analyst.capitalize()} Analyst")
 
         # Connect analysts in sequence
         for i, analyst_type in enumerate(selected_analysts):

@@ -52,7 +52,7 @@ class TradingAgentsGraph:
 
     def __init__(
         self,
-        selected_analysts=["market", "social", "news", "fundamentals"],
+        selected_analysts=["market", "market_technician", "social", "news", "fundamentals"],
         debug=False,
         config: Dict[str, Any] = None,
         callbacks: Optional[List] = None,
@@ -160,6 +160,14 @@ class TradingAgentsGraph:
                     # Core stock data tools
                     get_stock_data,
                     # Technical indicators
+                    get_indicators,
+                ]
+            ),
+            "market_technician": ToolNode(
+                [
+                    # Same price/indicator tools; the analyst focuses on macro/
+                    # breadth/intermarket/volume structure rather than the indicator sweep.
+                    get_stock_data,
                     get_indicators,
                 ]
             ),

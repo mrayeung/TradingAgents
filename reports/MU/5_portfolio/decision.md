@@ -1,0 +1,7 @@
+**Rating**: Overweight
+
+**Executive Summary**: We are initiating an Overweight position in MU to capitalize on its structural leadership in the AI-driven HBM market. The current price is technically overextended, so we will manage risk through disciplined position sizing. We will enter a 1% starter position at the current market price to ensure participation and place limit orders to build our exposure to a 3% target on any pullbacks toward the $500 level.
+
+**Investment Thesis**: The debate correctly identified the core tension between MU's powerful structural AI growth story and its extreme technical over-extension. The aggressive case is compelling; a PEG ratio of 0.19 and operating cash flow of over $17 billion signal that the market is still undervaluing MU's fundamental re-rating from a cyclical memory maker to an essential AI infrastructure provider. However, the conservative analyst's warnings are valid and cannot be ignored. Entering a full position at $542.21, with an RSI of 71.85 and a high ATR of 28.23, constitutes chasing and exposes the portfolio to significant mean-reversion risk. Therefore, we are adopting the neutral analyst's pragmatic, risk-managed approach. We will initiate a modest 1% position now to respect the powerful institutional momentum, but we will use the stock's inherent volatility as an opportunity, not a threat, by setting limit orders to build our full position at more favorable prices.
+
+**Time Horizon**: 12-24 months

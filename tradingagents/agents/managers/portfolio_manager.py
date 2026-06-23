@@ -31,6 +31,13 @@ def create_portfolio_manager(llm):
         risk_debate_state = state["risk_debate_state"]
         research_plan = state["investment_plan"]
         trader_plan = state["trader_investment_plan"]
+        quantitative_report = state.get("quantitative_report", "")
+        regime_line = (
+            f"- Quantitative Analyst (Markov 2.0) regime/edge input; act on it "
+            f"only when READY with an edge:\n{quantitative_report}\n"
+            if quantitative_report
+            else ""
+        )
 
         past_context = state.get("past_context", "")
         lessons_line = (
@@ -55,7 +62,7 @@ def create_portfolio_manager(llm):
 **Context:**
 - Research Manager's investment plan: **{research_plan}**
 - Trader's transaction proposal: **{trader_plan}**
-{lessons_line}
+{regime_line}{lessons_line}
 **Risk Analysts Debate History:**
 {history}
 

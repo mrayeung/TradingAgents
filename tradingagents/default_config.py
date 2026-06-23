@@ -1,6 +1,6 @@
 import os
 
-_TRADINGAGENTS_HOME = os.path.join(os.path.expanduser("~"), ".tradingagents")
+_TRADINGAGENTS_HOME = os.path.join(os.path.expanduser("~"), "tradingagents")
 
 DEFAULT_CONFIG = {
     "project_dir": os.path.abspath(os.path.join(os.path.dirname(__file__), ".")),
@@ -46,5 +46,57 @@ DEFAULT_CONFIG = {
     # Tool-level configuration (takes precedence over category-level)
     "tool_vendors": {
         # Example: "get_stock_data": "alpha_vantage",  # Override category default
+    },
+
+    # ---------------------------------------------------------------------------
+    # Portfolio Construction Extension
+    # ---------------------------------------------------------------------------
+    "portfolio": {
+        # --- Universe ---
+        # "sp500"  : screen the full S&P 500 (Wikipedia live fetch + seed fallback)
+        # "sector" : screen a single GICS sector (set "sector" key below)
+        # "list"   : use a custom ticker list (set "custom_tickers" key below)
+        "universe": "sp500",
+        "sector": None,           # e.g. "Technology" when universe="sector"
+        "custom_tickers": [],     # e.g. ["AAPL","MSFT","NVDA"] when universe="list"
+
+        # --- Screener ---
+        # How many tickers the screener pre-filters before the full LLM analysis.
+        # For a 100-ticker input, the screener scores all 100 quantitatively and
+        # passes only the top pre_analysis_cap to the expensive LLM pipeline.
+        # Rule of thumb: set to ~2× max_positions so the LLM has enough to choose from.
+        "pre_analysis_cap": 50,
+        # Momentum (price strength) vs Quality (financial health) blend
+        "momentum_weight": 0.5,
+        "quality_weight": 0.5,
+        # Parallel workers for screener data fetching
+        "screener_max_workers": 10,
+        # Seconds between yfinance requests (gentle rate limiting)
+        "screener_request_delay": 0.1,
+        # Parallel workers for per-ticker LLM analysis (Step 2).
+        # Each worker runs one full TradingAgentsGraph pipeline concurrently.
+        # 3 is a safe default — raise to 5 if your API tier allows higher RPM.
+        "max_analysis_workers": 3,
+
+        # --- Portfolio Construction ---
+        # Hard cap on final portfolio holdings — the portfolio will never exceed this
+        # regardless of how many tickers were analysed.
+        "max_positions": 30,      # Maximum number of holdings
+        "min_weight": 0.02,       # Minimum position size (2%)
+        "max_weight": 0.15,       # Maximum position size (15%)
+        # Minimum agent rating to be considered investable: "Hold", "Overweight", or "Buy"
+        "min_rating": "Hold",
+
+        # --- Rebalancing ---
+        # Day of month for scheduled monthly rebalance (1 = first of month)
+        "rebalance_day": 1,
+        # Relative drift threshold to trigger an intra-month rebalance
+        # |current_w - target_w| / target_w > drift_threshold → flag for rebalance
+        "drift_threshold": 0.25,
+
+        # --- Outputs ---
+        # Directory for portfolio Excel + Markdown outputs
+        # Defaults to <results_dir>/portfolio if not set
+        "output_dir": None,
     },
 }

@@ -1217,5 +1217,189 @@ def analyze(
     run_analysis(checkpoint=checkpoint)
 
 
+@app.command()
+def portfolio(
+    tickers: Optional[str] = typer.Option(
+        None,
+        "--tickers", "-t",
+        help='Comma-separated ticker list.  Example: --tickers "AAPL,MSFT,NVDA"',
+    ),
+    tickers_file: Optional[Path] = typer.Option(
+        None,
+        "--tickers-file", "-f",
+        help=(
+            "Path to a .txt or .csv file containing tickers.  "
+            "txt: one ticker per line.  "
+            "csv: tickers in the first column (header row is skipped)."
+        ),
+        exists=True,
+        readable=True,
+    ),
+    date: Optional[str] = typer.Option(
+        None,
+        "--date", "-d",
+        help="Analysis date YYYY-MM-DD.  Defaults to today.",
+    ),
+    universe: Optional[str] = typer.Option(
+        None,
+        "--universe", "-u",
+        help='Universe to screen when no tickers are supplied: "sp500", "sector", or "list".',
+    ),
+    sector: Optional[str] = typer.Option(
+        None,
+        "--sector",
+        help='GICS sector name when --universe sector is used.  Example: "Technology".',
+    ),
+    holdings: Optional[str] = typer.Option(
+        None,
+        "--holdings",
+        help=(
+            'Current portfolio weights for rebalancing as comma-separated TICKER=WEIGHT pairs.  '
+            'Example: --holdings "AAPL=0.12,MSFT=0.08,NVDA=0.06"'
+        ),
+    ),
+    holdings_file: Optional[Path] = typer.Option(
+        None,
+        "--holdings-file",
+        help=(
+            "Path to a JSON file containing current holdings as {TICKER: weight}.  "
+            'Example: {"AAPL": 0.12, "MSFT": 0.08}'
+        ),
+        exists=True,
+        readable=True,
+    ),
+    max_positions: int = typer.Option(
+        30, "--max-positions", help="Hard cap on final portfolio holdings (default 30)."
+    ),
+    drift_threshold: float = typer.Option(
+        0.25, "--drift-threshold",
+        help="Relative drift threshold (0–1) that triggers an intra-month rebalance.",
+    ),
+):
+    """Run the Portfolio Construction pipeline on a basket of tickers.
+
+    Supply tickers via --tickers, --tickers-file, or a universe flag.
+    Optionally pass --holdings / --holdings-file to generate a rebalance plan.
+
+    \b
+    Examples
+    --------
+    # Inline list
+    tradingagents portfolio --tickers "AAPL,MSFT,NVDA"
+
+    # From a text file  (one ticker per line)
+    tradingagents portfolio --tickers-file my_watchlist.txt
+
+    # From a CSV file  (tickers in first column)
+    tradingagents portfolio --tickers-file universe.csv
+
+    # Screen the Technology sector automatically
+    tradingagents portfolio --universe sector --sector Technology
+
+    # With current holdings for rebalancing
+    tradingagents portfolio --tickers "AAPL,MSFT,NVDA" --holdings "AAPL=0.12,MSFT=0.08,NVDA=0.06"
+
+    # With holdings from a JSON file
+    tradingagents portfolio --tickers-file watchlist.txt --holdings-file current.json
+    """
+    import json as _json
+
+    # ---- Resolve ticker list ----
+    ticker_list: Optional[list] = None
+
+    if tickers:
+        ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
+
+    elif tickers_file:
+        suffix = tickers_file.suffix.lower()
+        try:
+            if suffix == ".csv":
+                import pandas as _pd
+                df = _pd.read_csv(tickers_file, header=0)
+                ticker_list = [str(v).strip().upper() for v in df.iloc[:, 0] if str(v).strip()]
+            else:
+                # .txt or any other extension — one ticker per line
+                lines = tickers_file.read_text(encoding="utf-8").splitlines()
+                ticker_list = [
+                    ln.strip().upper()
+                    for ln in lines
+                    if ln.strip() and not ln.strip().startswith("#")
+                ]
+        except Exception as e:
+            console.print(f"[bold red]Error reading tickers file:[/bold red] {e}")
+            raise typer.Exit(1)
+
+    if ticker_list is not None and len(ticker_list) == 0:
+        console.print("[bold red]No tickers found — check your input.[/bold red]")
+        raise typer.Exit(1)
+
+    if ticker_list:
+        console.print(
+            f"[bold green]Tickers loaded ({len(ticker_list)}):[/bold green] "
+            + ", ".join(ticker_list)
+        )
+
+    # ---- Resolve current holdings ----
+    current_holdings: Optional[dict] = None
+
+    if holdings_file:
+        try:
+            current_holdings = _json.loads(holdings_file.read_text(encoding="utf-8"))
+            current_holdings = {k.upper(): float(v) for k, v in current_holdings.items()}
+        except Exception as e:
+            console.print(f"[bold red]Error reading holdings file:[/bold red] {e}")
+            raise typer.Exit(1)
+
+    elif holdings:
+        try:
+            current_holdings = {}
+            for pair in holdings.split(","):
+                pair = pair.strip()
+                if "=" not in pair:
+                    continue
+                tkr, wt = pair.split("=", 1)
+                current_holdings[tkr.strip().upper()] = float(wt.strip())
+        except Exception as e:
+            console.print(f"[bold red]Error parsing --holdings:[/bold red] {e}")
+            raise typer.Exit(1)
+
+    if current_holdings:
+        console.print(
+            "[bold green]Current holdings:[/bold green] "
+            + ", ".join(f"{k}={v:.1%}" for k, v in current_holdings.items())
+        )
+
+    # ---- Build config ----
+    from tradingagents.graph.portfolio_graph import PortfolioGraph
+
+    config = DEFAULT_CONFIG.copy()
+    config["portfolio"] = dict(DEFAULT_CONFIG.get("portfolio", {}))
+    config["portfolio"]["max_positions"] = max_positions
+    config["portfolio"]["drift_threshold"] = drift_threshold
+
+    if universe:
+        config["portfolio"]["universe"] = universe
+    if sector:
+        config["portfolio"]["sector"] = sector
+    if ticker_list:
+        config["portfolio"]["universe"] = "list"
+        config["portfolio"]["custom_tickers"] = ticker_list
+        # pre_analysis_cap caps how many go to the LLM pipeline;
+        # max_positions caps the final portfolio — never override these to the
+        # full list size or you'd run LLM analysis on every ticker supplied.
+
+    trade_date = date or datetime.datetime.now().strftime("%Y-%m-%d")
+
+    # ---- Run ----
+    pg = PortfolioGraph(config=config)
+    result = pg.run(
+        trade_date=trade_date,
+        current_holdings=current_holdings,
+    )
+
+    if result.errors:
+        console.print(f"\n[yellow]Warnings:[/yellow] {result.errors}")
+
+
 if __name__ == "__main__":
     app()
