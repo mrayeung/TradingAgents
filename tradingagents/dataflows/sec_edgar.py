@@ -176,20 +176,50 @@ def _strip_html(html: str) -> str:
 
 
 def _extract_sections(raw_text: str) -> dict[str, str]:
-    """Extract key 10-K sections from plain text (post HTML stripping)."""
+    """Extract key 10-K/10-Q sections from plain text (post HTML stripping).
+
+    10-K documents have two occurrences of each section header:
+      1. Table of Contents — followed only by a page number ("... 20")
+      2. Actual section body — followed by substantive prose
+
+    We iterate ALL matches and take the last one that has >200 chars of
+    real content before the next Item header (skipping TOC entries).
+    """
     text   = raw_text.lower()
     result = {}
 
     for label, pattern in _SECTION_ITEMS:
-        m = re.search(pattern, text, re.IGNORECASE)
-        if not m:
+        matches = list(re.finditer(pattern, text, re.IGNORECASE))
+        if not matches:
             continue
-        start = m.end()
-        # End at next "Item N" header or after _SECTION_MAX_CHARS
-        next_item = re.search(r"\bitem\s+\d", text[start:start + _SECTION_MAX_CHARS + 2000])
-        end = start + (next_item.start() if next_item else _SECTION_MAX_CHARS)
-        snippet = raw_text[start:end].strip()
-        snippet = _MULTI_SPACE.sub("\n", snippet)
+
+        chosen = None
+        for m in matches:
+            start   = m.end()
+            window  = raw_text[start : start + _SECTION_MAX_CHARS + 2_000]
+            # Skip Table of Contents entries: content is just whitespace + a number
+            stripped = window.lstrip()
+            if re.match(r"^[\d\s\.]{0,10}$", stripped[:50]):
+                continue
+            # Skip if there's almost no content
+            if len(stripped) < 150:
+                continue
+            chosen = (start, window)
+            # Don't break — prefer later matches (actual body over TOC)
+
+        if not chosen:
+            # Fall back to first match if all look like TOC (edge case)
+            m      = matches[-1]
+            start  = m.end()
+            window = raw_text[start : start + _SECTION_MAX_CHARS + 2_000]
+            chosen = (start, window)
+
+        start, window = chosen
+        # Trim at the next "Item N" header
+        next_item = re.search(r"\bitem\s+\d", window.lower())
+        end_idx   = next_item.start() if next_item else _SECTION_MAX_CHARS
+        snippet   = window[:end_idx].strip()
+        snippet   = _MULTI_SPACE.sub("\n", snippet)
         result[label] = snippet[:_SECTION_MAX_CHARS]
 
     return result
@@ -246,16 +276,18 @@ def get_sec_filings(ticker: str, start_date: str, end_date: str) -> str:
         except SECEdgarUnavailableError:
             company_name = ticker
 
-        # Try 10-K first, then 10-Q
-        filings = _find_recent_filings(
-            cik, ["10-K", "10-Q"], start_date, end_date, limit=2
-        )
+        # Prefer 10-K (annual) — search up to 18 months back so we always get one
+        wide_start = (
+            datetime.strptime(end_date, "%Y-%m-%d") - timedelta(days=548)
+        ).strftime("%Y-%m-%d")
 
-        # If no filings in window, widen to last 18 months for 10-K
+        annual  = _find_recent_filings(cik, ["10-K"],       wide_start, end_date, limit=1)
+        quarter = _find_recent_filings(cik, ["10-Q"],       start_date, end_date, limit=1)
+
+        # Put 10-K first so section extraction runs on the annual report
+        filings = annual + [q for q in quarter if q not in annual]
+
         if not filings:
-            wide_start = (
-                datetime.strptime(end_date, "%Y-%m-%d") - timedelta(days=548)
-            ).strftime("%Y-%m-%d")
             filings = _find_recent_filings(
                 cik, ["10-K", "10-Q"], wide_start, end_date, limit=1
             )

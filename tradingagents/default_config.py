@@ -43,6 +43,7 @@ DEFAULT_CONFIG = {
         "core_stock_apis": "yfinance",       # Options: alpha_vantage, yfinance
         "technical_indicators": "yfinance",  # Options: alpha_vantage, yfinance
         "fundamental_data": "yfinance",      # Options: alpha_vantage, yfinance
+        "sec_data": "sec_edgar",             # SEC EDGAR — free, no key required
         # News vendor chain:    finnhub (primary) → google_news (backup) → yfinance (fallback)
         # Sentiment chain:      finnhub (paid)    → stocktwits (free, no key)
         # Requires: FINNHUB_API_KEY in .env  +  pip install finnhub-python feedparser
