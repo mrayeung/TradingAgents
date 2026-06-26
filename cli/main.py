@@ -56,6 +56,7 @@ class MessageBuffer:
         "social": "Social Analyst",
         "news": "News Analyst",
         "fundamentals": "Fundamentals Analyst",
+        "market_technician": "Market Technician",
     }
 
     # Report section mapping: section -> (analyst_key for filtering, finalizing_agent)
@@ -66,6 +67,7 @@ class MessageBuffer:
         "sentiment_report": ("social", "Social Analyst"),
         "news_report": ("news", "News Analyst"),
         "fundamentals_report": ("fundamentals", "Fundamentals Analyst"),
+        "market_technician_report": ("market_technician", "Market Technician"),
         "investment_plan": (None, "Research Manager"),
         "trader_investment_plan": (None, "Trader"),
         "final_trade_decision": (None, "Portfolio Manager"),
@@ -284,6 +286,7 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
     all_teams = {
         "Analyst Team": [
             "Market Analyst",
+            "Market Technician",
             "Social Analyst",
             "News Analyst",
             "Fundamentals Analyst",

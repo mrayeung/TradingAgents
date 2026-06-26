@@ -23,7 +23,9 @@ DEFAULT_CONFIG = {
     "backend_url": None,
     # Provider-specific thinking configuration
     "google_thinking_level": None,      # "high", "minimal", etc.
-    "openai_reasoning_effort": None,    # "medium", "high", "low"
+    "openai_reasoning_effort": None,    # OpenAI: "low"/"medium"/"high"/"max"
+                                        # OpenRouter (DeepSeek): "xhigh" = max reasoning
+                                        # e.g. set to "xhigh" when provider="openrouter"
     "anthropic_effort": None,           # "high", "medium", "low"
     # Checkpoint/resume: when True, LangGraph saves state after each node
     # so a crashed run can resume from the last successful step.
@@ -41,7 +43,11 @@ DEFAULT_CONFIG = {
         "core_stock_apis": "yfinance",       # Options: alpha_vantage, yfinance
         "technical_indicators": "yfinance",  # Options: alpha_vantage, yfinance
         "fundamental_data": "yfinance",      # Options: alpha_vantage, yfinance
-        "news_data": "yfinance",             # Options: alpha_vantage, yfinance
+        # News vendor chain:    finnhub (primary) → google_news (backup) → yfinance (fallback)
+        # Sentiment chain:      finnhub (paid)    → stocktwits (free, no key)
+        # Requires: FINNHUB_API_KEY in .env  +  pip install finnhub-python feedparser
+        "news_data": "finnhub,google_news",
+        "social_sentiment": "finnhub,stocktwits",
     },
     # Tool-level configuration (takes precedence over category-level)
     "tool_vendors": {

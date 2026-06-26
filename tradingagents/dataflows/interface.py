@@ -23,6 +23,25 @@ from .alpha_vantage import (
     get_global_news as get_alpha_vantage_global_news,
 )
 from .alpha_vantage_common import AlphaVantageRateLimitError
+from .finnhub_news import (
+    get_news_finnhub,
+    get_global_news_finnhub,
+    get_social_sentiment_finnhub,
+    FinnhubUnavailableError,
+)
+from .google_news_rss import (
+    get_news_google_rss,
+    get_global_news_google_rss,
+    GoogleNewsUnavailableError,
+)
+from .stocktwits_sentiment import (
+    get_social_sentiment_stocktwits,
+    StockTwitsUnavailableError,
+)
+from .sec_edgar import (
+    get_sec_filings,
+    SECEdgarUnavailableError,
+)
 
 # Configuration and routing logic
 from .config import get_config
@@ -51,16 +70,25 @@ TOOLS_CATEGORIES = {
         ]
     },
     "news_data": {
-        "description": "News and insider data",
+        "description": "News, social sentiment and insider data",
         "tools": [
             "get_news",
             "get_global_news",
             "get_insider_transactions",
+            "get_social_sentiment",
+        ]
+    },
+    "sec_data": {
+        "description": "SEC EDGAR filings (10-K, 10-Q, 8-K)",
+        "tools": [
+            "get_sec_filings",
         ]
     }
 }
 
 VENDOR_LIST = [
+    "finnhub",
+    "google_news",
     "yfinance",
     "alpha_vantage",
 ]
@@ -96,16 +124,28 @@ VENDOR_METHODS = {
     },
     # news_data
     "get_news": {
+        "finnhub":       get_news_finnhub,
+        "google_news":   get_news_google_rss,
+        "yfinance":      get_news_yfinance,
         "alpha_vantage": get_alpha_vantage_news,
-        "yfinance": get_news_yfinance,
     },
     "get_global_news": {
-        "yfinance": get_global_news_yfinance,
+        "finnhub":       get_global_news_finnhub,
+        "google_news":   get_global_news_google_rss,
+        "yfinance":      get_global_news_yfinance,
         "alpha_vantage": get_alpha_vantage_global_news,
+    },
+    "get_social_sentiment": {
+        "finnhub":     get_social_sentiment_finnhub,    # paid plan
+        "stocktwits":  get_social_sentiment_stocktwits, # free, no key needed
+        # google_news and yfinance have no social sentiment endpoint
     },
     "get_insider_transactions": {
         "alpha_vantage": get_alpha_vantage_insider_transactions,
-        "yfinance": get_yfinance_insider_transactions,
+        "yfinance":      get_yfinance_insider_transactions,
+    },
+    "get_sec_filings": {
+        "sec_edgar": get_sec_filings,
     },
 }
 
@@ -156,7 +196,13 @@ def route_to_vendor(method: str, *args, **kwargs):
 
         try:
             return impl_func(*args, **kwargs)
-        except AlphaVantageRateLimitError:
-            continue  # Only rate limits trigger fallback
+        except (
+            AlphaVantageRateLimitError,
+            FinnhubUnavailableError,
+            GoogleNewsUnavailableError,
+            StockTwitsUnavailableError,
+            SECEdgarUnavailableError,
+        ):
+            continue  # Vendor unavailable or rate-limited — try next in chain
 
     raise RuntimeError(f"No available vendor for '{method}'")

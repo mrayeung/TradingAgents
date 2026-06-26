@@ -140,9 +140,11 @@ class TradingAgentsGraph:
             if thinking_level:
                 kwargs["thinking_level"] = thinking_level
 
-        elif provider == "openai":
+        elif provider in ("openai", "openrouter"):
             reasoning_effort = self.config.get("openai_reasoning_effort")
             if reasoning_effort:
+                # OpenRouter maps "xhigh" → DeepSeek max reasoning.
+                # Native OpenAI uses "medium"/"high"/"low"/"max".
                 kwargs["reasoning_effort"] = reasoning_effort
 
         elif provider == "anthropic":

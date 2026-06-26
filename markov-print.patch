@@ -1,0 +1,48 @@
+diff --git a/macos/TradingDesk/Sources/TradingDesk/Library.swift b/macos/TradingDesk/Sources/TradingDesk/Library.swift
+index 8758dda..2d99eb2 100644
+--- a/macos/TradingDesk/Sources/TradingDesk/Library.swift
++++ b/macos/TradingDesk/Sources/TradingDesk/Library.swift
+@@ -1,4 +1,5 @@
+ import SwiftUI
++import AppKit
+ 
+ struct ReportSummary: Identifiable {
+     var id: String { "\(ticker)-\(date)" }
+@@ -157,6 +158,8 @@ struct RunDocumentView: View {
+                 }
+                 Spacer()
+                 if let rating = summary.rating { RatingChip(rating: rating) }
++                Button("Print / PDF") { printDocument() }
++                    .disabled(sections.isEmpty)
+                 Button("Done") { dismiss() }.buttonStyle(PrimaryButtonStyle())
+             }
+             .padding(Space.l)
+@@ -189,6 +192,28 @@ struct RunDocumentView: View {
+         .task { sections = await store.loadDoc(ticker: summary.ticker, date: summary.date) }
+     }
+ 
++    private func printDocument() {
++        let title = "\(summary.ticker) · \(DeskFormat.shortDate(summary.date))\n\n"
++        let text = title + sections.map { "\($0.title)\n\n\($0.body)" }.joined(separator: "\n\n\n")
++        let info = NSPrintInfo.shared
++        info.topMargin = 40; info.bottomMargin = 40
++        info.leftMargin = 40; info.rightMargin = 40
++        info.horizontalPagination = .fit
++        info.verticalPagination = .automatic
++        let width = info.paperSize.width - info.leftMargin - info.rightMargin
++        let tv = NSTextView(frame: NSRect(x: 0, y: 0, width: width, height: 100))
++        tv.isVerticallyResizable = true
++        tv.isHorizontallyResizable = false
++        tv.textContainer?.containerSize = NSSize(width: width, height: .greatestFiniteMagnitude)
++        tv.textContainer?.widthTracksTextView = true
++        tv.font = NSFont.systemFont(ofSize: 11)
++        tv.string = text
++        tv.sizeToFit()
++        let op = NSPrintOperation(view: tv, printInfo: info)
++        op.showsPrintPanel = true
++        op.run()
++    }
++
+     private static func markdown(_ s: String) -> AttributedString {
+         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+         return (try? AttributedString(markdown: s, options: options)) ?? AttributedString(s)

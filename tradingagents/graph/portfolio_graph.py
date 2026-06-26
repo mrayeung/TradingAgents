@@ -185,9 +185,11 @@ class PortfolioGraph:
             level = self.config.get("google_thinking_level")
             if level:
                 kwargs["thinking_level"] = level
-        elif provider == "openai":
+        elif provider in ("openai", "openrouter"):
             effort = self.config.get("openai_reasoning_effort")
             if effort:
+                # OpenRouter maps "xhigh" → DeepSeek max reasoning.
+                # Native OpenAI uses "medium"/"high"/"low"/"max".
                 kwargs["reasoning_effort"] = effort
         elif provider == "anthropic":
             effort = self.config.get("anthropic_effort")
