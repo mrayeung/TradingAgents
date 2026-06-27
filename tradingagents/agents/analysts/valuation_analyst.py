@@ -1,21 +1,21 @@
 """
 Valuation Analyst — sector-aware multi-agent equity valuation.
 
-Workflow:
+Workflow (self-contained agentic loop — does NOT rely on the graph's tools_valuation cycle):
   1. Call get_valuation_metrics → understand sector + current vs. 3yr history
   2. Identify 6-10 peer tickers based on sector knowledge
   3. Call get_peer_comparables → comps table
   4. Write structured valuation report with verdict (Rich / Fair / Cheap)
 """
 
-import json
-
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
 from tradingagents.agents.utils.valuation_tools import (
     get_peer_comparables,
     get_valuation_metrics,
 )
+
+_MAX_TOOL_ROUNDS = 10  # safety cap — prevents runaway loops
 
 
 def create_valuation_analyst(llm):
@@ -26,6 +26,7 @@ def create_valuation_analyst(llm):
         trade_date: str = state["trade_date"]
 
         tools = [get_valuation_metrics, get_peer_comparables]
+        tools_by_name = {t.name: t for t in tools}
         llm_with_tools = llm.bind_tools(tools)
 
         system_prompt = SystemMessage(
@@ -110,15 +111,42 @@ Do NOT write generic statements like "the stock appears fairly valued." Show the
             )
         )
 
+        # ── Self-contained agentic tool loop ──────────────────────────────────
+        # We run the tool loop here rather than relying on the LangGraph
+        # tools_valuation cycle.  The previous single-shot implementation
+        # re-initialised messages on every graph re-entry, which discarded tool
+        # results and caused a GraphRecursionError (250-step infinite loop).
         messages = [system_prompt, human_prompt]
-        result = llm_with_tools.invoke(messages)
+        result = None
 
-        report = ""
-        if not result.tool_calls:
-            report = result.content
+        for _ in range(_MAX_TOOL_ROUNDS):
+            result = llm_with_tools.invoke(messages)
+            messages.append(result)
+
+            if not result.tool_calls:
+                break  # LLM finished — no more tool requests
+
+            # Execute each requested tool and feed results back
+            for tc in result.tool_calls:
+                tool_fn = tools_by_name.get(tc["name"])
+                if tool_fn is None:
+                    tool_output = f"Unknown tool: {tc['name']}"
+                else:
+                    try:
+                        tool_output = tool_fn.invoke(tc["args"])
+                    except Exception as exc:  # noqa: BLE001
+                        tool_output = f"Tool error: {exc}"
+                messages.append(
+                    ToolMessage(
+                        content=str(tool_output),
+                        tool_call_id=tc["id"],
+                    )
+                )
+
+        report = result.content if (result and not result.tool_calls) else ""
 
         return {
-            "messages": messages + [result],
+            "messages": messages,
             "valuation_report": report,
         }
 

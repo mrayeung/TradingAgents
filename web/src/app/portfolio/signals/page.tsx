@@ -68,40 +68,9 @@ function elapsed(ms: number) {
   return `${Math.floor(s / 60)}m ${s % 60}s`;
 }
 
-// ─── Debate engine options ─────────────────────────────────────────────────────
-
-// All debate engines route through OpenRouter (single subscription, one API key).
-// Model strings match the OpenRouter catalog — check GET /openrouter/models for latest IDs.
-const DEBATE_ENGINES = [
-  {
-    key: "inherit",
-    label: "Inherit (main model)",
-    desc: "Debate nodes use the same model as the rest of the run",
-    extra: {},
-  },
-  {
-    key: "gemini",
-    label: "⚡ Gemini 3 Flash",
-    desc: "Fast & precise — ideal for live/interactive runs",
-    extra: {
-      debate_llm_provider: "openrouter",
-      debate_llm_model: "google/gemini-flash-3",
-      debate_backend_url: "https://openrouter.ai/api/v1",
-    },
-  },
-  {
-    key: "deepseek",
-    label: "🔋 DeepSeek V4 Flash",
-    desc: "Ultra-cheap — ideal for overnight batch sweeps",
-    extra: {
-      debate_llm_provider: "openrouter",
-      debate_llm_model: "deepseek/deepseek-v4-flash",
-      debate_backend_url: "https://openrouter.ai/api/v1",
-    },
-  },
-] as const;
-
-type DebateEngineKey = (typeof DEBATE_ENGINES)[number]["key"];
+// Debate model is configured server-side via TRADINGAGENTS_DEBATE_LLM_MODEL in .env
+// (all 5 advocate nodes share a single model to avoid stylistic bias from
+// role-locked assignments). No per-run selection needed in the UI.
 
 // ─── New Analysis Panel ───────────────────────────────────────────────────────
 
@@ -115,7 +84,6 @@ function NewAnalysisPanel({
   const [ticker, setTicker] = useState("");
   const [tradeDate, setTradeDate] = useState(new Date().toISOString().split("T")[0]);
   const [selectedAnalysts, setSelectedAnalysts] = useState(ALL_ANALYSTS.map(a => a.key));
-  const [debateEngine, setDebateEngine] = useState<DebateEngineKey>("inherit");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -130,16 +98,11 @@ function NewAnalysisPanel({
     if (!t) return;
     setLoading(true);
     setError(null);
-
-    const engine = DEBATE_ENGINES.find(e => e.key === debateEngine)!;
-    const debateExtra = debateEngine === "inherit" ? {} : engine.extra;
-
     try {
       const res = await api.startRun({
         ticker: t,
         trade_date: tradeDate,
         analysts: selectedAnalysts,
-        ...debateExtra,
       });
       onStarted({
         runId: res.run_id,
@@ -205,32 +168,13 @@ function NewAnalysisPanel({
         </div>
       </div>
 
-      {/* ── Debate Engine ── */}
-      <div>
-        <label className="text-xs text-slate-400 block mb-2">Debate Engine</label>
-        <div className="flex flex-col gap-1.5">
-          {DEBATE_ENGINES.map(({ key, label, desc }) => (
-            <button
-              key={key}
-              onClick={() => setDebateEngine(key)}
-              className={clsx(
-                "flex items-start gap-3 px-3 py-2.5 rounded-lg border text-left transition-colors",
-                debateEngine === key
-                  ? "bg-sky-900/40 border-sky-600/60 text-slate-100"
-                  : "bg-slate-800/50 border-slate-700/50 text-slate-400 hover:border-slate-600"
-              )}
-            >
-              <span className={clsx(
-                "mt-0.5 w-3 h-3 rounded-full border-2 shrink-0",
-                debateEngine === key ? "border-sky-400 bg-sky-400" : "border-slate-600"
-              )} />
-              <span>
-                <span className="text-xs font-medium block">{label}</span>
-                <span className="text-xs text-slate-500">{desc}</span>
-              </span>
-            </button>
-          ))}
-        </div>
+      {/* ── Debate model — server-configured, shown read-only ── */}
+      <div className="flex items-center gap-2 px-3 py-2 bg-slate-800/40 border border-slate-700/50 rounded-lg">
+        <span className="text-xs text-slate-500">⚡ Debate model</span>
+        <span className="text-xs font-mono text-slate-300 ml-1">
+          set via <code className="text-sky-400">TRADINGAGENTS_DEBATE_LLM_MODEL</code>
+        </span>
+        <span className="text-xs text-slate-500 ml-auto">all 5 advocate nodes share one model</span>
       </div>
 
       {error && (

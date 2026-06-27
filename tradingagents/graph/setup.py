@@ -38,12 +38,30 @@ class GraphSetup:
         deep_thinking_llm: Any,
         tool_nodes: dict[str, ToolNode],
         conditional_logic: ConditionalLogic,
+        advocate_llm: Any = None,
+        risk_llm: Any = None,
     ):
-        """Initialize with required components."""
+        """Initialize with required components.
+
+        Args:
+            quick_thinking_llm: Fast LLM for research analysts and fallback nodes.
+            deep_thinking_llm: Reasoning LLM for managers and valuation.
+            tool_nodes: Pre-built ToolNode map keyed by analyst type.
+            conditional_logic: Edge-condition helper.
+            advocate_llm: LLM for Bull/Bear advocate nodes. Defaults to
+                quick_thinking_llm when not provided. Optimised for TTFT
+                (serial debate chain).
+            risk_llm: LLM for Aggressive/Conservative/Neutral risk analyst
+                nodes. Defaults to quick_thinking_llm when not provided.
+                Optimised for per-token cost (large shared context per call).
+        """
         self.quick_thinking_llm = quick_thinking_llm
         self.deep_thinking_llm = deep_thinking_llm
         self.tool_nodes = tool_nodes
         self.conditional_logic = conditional_logic
+        # Fall back to quick LLM so callers that don't set these params are unaffected.
+        self.advocate_llm = advocate_llm if advocate_llm is not None else quick_thinking_llm
+        self.risk_llm = risk_llm if risk_llm is not None else quick_thinking_llm
 
     def setup_graph(
         self, selected_analysts=("market", "social", "news", "fundamentals")
@@ -68,16 +86,16 @@ class GraphSetup:
             "valuation": lambda: create_valuation_analyst(self.deep_thinking_llm),
         }
 
-        # Create researcher and manager nodes
-        bull_researcher_node = create_bull_researcher(self.quick_thinking_llm)
-        bear_researcher_node = create_bear_researcher(self.quick_thinking_llm)
+        # Advocate loop: Bull/Bear use advocate_llm (optimised for serial TTFT)
+        bull_researcher_node = create_bull_researcher(self.advocate_llm)
+        bear_researcher_node = create_bear_researcher(self.advocate_llm)
         research_manager_node = create_research_manager(self.deep_thinking_llm)
         trader_node = create_trader(self.quick_thinking_llm)
 
-        # Create risk analysis nodes
-        aggressive_analyst = create_aggressive_debator(self.quick_thinking_llm)
-        neutral_analyst = create_neutral_debator(self.quick_thinking_llm)
-        conservative_analyst = create_conservative_debator(self.quick_thinking_llm)
+        # Risk loop: Aggressive/Conservative/Neutral use risk_llm (optimised for token cost)
+        aggressive_analyst = create_aggressive_debator(self.risk_llm)
+        neutral_analyst = create_neutral_debator(self.risk_llm)
+        conservative_analyst = create_conservative_debator(self.risk_llm)
         portfolio_manager_node = create_portfolio_manager(self.deep_thinking_llm)
 
         # Create workflow

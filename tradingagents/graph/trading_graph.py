@@ -100,6 +100,35 @@ class TradingAgentsGraph:
         self.deep_thinking_llm = deep_client.get_llm()
         self.quick_thinking_llm = quick_client.get_llm()
 
+        # Advocate LLM — Bull/Bear serial debate chain, optimised for TTFT.
+        # Falls back to quick_thinking_llm when the env vars are not set.
+        advocate_provider = self.config.get("advocate_llm_provider")
+        if advocate_provider:
+            advocate_client = create_llm_client(
+                provider=advocate_provider,
+                model=self.config.get("advocate_llm_model", self.config["quick_think_llm"]),
+                base_url=self.config.get("advocate_backend_url"),
+                **llm_kwargs,
+            )
+            self.advocate_llm = advocate_client.get_llm()
+        else:
+            self.advocate_llm = self.quick_thinking_llm
+
+        # Risk LLM — Aggressive/Conservative/Neutral analysts, optimised for
+        # per-token cost (large shared context ingested by all three nodes).
+        # Falls back to quick_thinking_llm when the env vars are not set.
+        risk_provider = self.config.get("risk_llm_provider")
+        if risk_provider:
+            risk_client = create_llm_client(
+                provider=risk_provider,
+                model=self.config.get("risk_llm_model", self.config["quick_think_llm"]),
+                base_url=self.config.get("risk_backend_url"),
+                **llm_kwargs,
+            )
+            self.risk_llm = risk_client.get_llm()
+        else:
+            self.risk_llm = self.quick_thinking_llm
+
         self.memory_log = TradingMemoryLog(self.config)
 
         # Create tool nodes
@@ -115,6 +144,8 @@ class TradingAgentsGraph:
             self.deep_thinking_llm,
             self.tool_nodes,
             self.conditional_logic,
+            advocate_llm=self.advocate_llm,
+            risk_llm=self.risk_llm,
         )
 
         self.propagator = Propagator(

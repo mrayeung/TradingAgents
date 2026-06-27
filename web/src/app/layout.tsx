@@ -16,6 +16,7 @@ const NAV = [
   { href: "/portfolio/rebalance",    label: "🔄 Rebalance",      desc: "Trade list" },
   { href: "/portfolio/institutions", label: "🏦 Institutions",   desc: "13F portfolio tracker" },
   { href: "/portfolio/options",      label: "🎯 Options Action",  desc: "IV · trade ideas · flow" },
+  { href: "/portfolio/reports",      label: "📚 Reports",         desc: "Full report library" },
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

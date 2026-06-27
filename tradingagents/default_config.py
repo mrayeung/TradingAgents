@@ -24,6 +24,22 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_GOOGLE_THINKING_LEVEL":   "google_thinking_level",
     "TRADINGAGENTS_OPENAI_REASONING_EFFORT": "openai_reasoning_effort",
     "TRADINGAGENTS_ANTHROPIC_EFFORT":        "anthropic_effort",
+    # Advocate nodes (Bull / Bear): serial debate chain — optimise for TTFT.
+    # When unset, these nodes fall back to quick_think_llm.
+    # Example: TRADINGAGENTS_ADVOCATE_LLM_PROVIDER=openrouter
+    #          TRADINGAGENTS_ADVOCATE_LLM_MODEL=google/gemini-flash-3
+    #          TRADINGAGENTS_ADVOCATE_BACKEND_URL=https://openrouter.ai/api/v1
+    "TRADINGAGENTS_ADVOCATE_LLM_PROVIDER": "advocate_llm_provider",
+    "TRADINGAGENTS_ADVOCATE_LLM_MODEL":    "advocate_llm_model",
+    "TRADINGAGENTS_ADVOCATE_BACKEND_URL":  "advocate_backend_url",
+    # Risk analyst nodes (Aggressive / Conservative / Neutral): heavy shared context
+    # per call — optimise for per-token cost. When unset, falls back to quick_think_llm.
+    # Example: TRADINGAGENTS_RISK_LLM_PROVIDER=openrouter
+    #          TRADINGAGENTS_RISK_LLM_MODEL=deepseek/deepseek-v4-flash
+    #          TRADINGAGENTS_RISK_BACKEND_URL=https://openrouter.ai/api/v1
+    "TRADINGAGENTS_RISK_LLM_PROVIDER":     "risk_llm_provider",
+    "TRADINGAGENTS_RISK_LLM_MODEL":        "risk_llm_model",
+    "TRADINGAGENTS_RISK_BACKEND_URL":      "risk_backend_url",
 }
 
 
