@@ -245,3 +245,7 @@ reports/
 # patterns above (lib/ matches web/src/lib/, reports/ matches web/src/app/.../reports/)
 !web/
 !web/**
+
+# Next.js build artefacts and dependencies (re-ignore under the !web/** exemption)
+web/.next/
+web/node_modules/

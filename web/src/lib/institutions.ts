@@ -1,0 +1,209 @@
+/**
+ * Static registry of tracked institutional investors.
+ * CIKs are zero-padded 10-digit SEC EDGAR identifiers for the 13F filing entity
+ * (the fund/manager, NOT the company whose stock they hold).
+ */
+
+export type InstitutionCategory = "star" | "hedge_fund" | "tech_growth";
+
+export interface Institution {
+  id: string;             // URL-safe slug (numeric CIK without leading zeros)
+  name: string;           // Fund / firm name
+  manager: string;        // Lead portfolio manager
+  cik: string;            // Zero-padded 10-digit CIK (as used in SEC API URLs)
+  category: InstitutionCategory;
+  description: string;
+}
+
+export const INSTITUTIONS: Institution[] = [
+  // ── Star Investors ─────────────────────────────────────────────────────────
+  {
+    id: "1067983",
+    name: "Berkshire Hathaway",
+    manager: "Warren Buffett",
+    cik: "0001067983",
+    category: "star",
+    description: "Value-focused diversified holding company",
+  },
+  {
+    id: "1336528",
+    name: "Pershing Square",
+    manager: "Bill Ackman",
+    cik: "0001336528",
+    category: "star",
+    description: "Concentrated activist long-only investor",
+  },
+  {
+    id: "1649339",
+    name: "Scion Asset Management",
+    manager: "Michael Burry",
+    cik: "0001649339",
+    category: "star",
+    description: "Contrarian value; famous for the 2008 subprime short",
+  },
+  {
+    id: "1536411",
+    name: "Duquesne Family Office",
+    manager: "Stanley Druckenmiller",
+    cik: "0001536411",
+    category: "star",
+    description: "Global macro and growth hybrid",
+  },
+  {
+    id: "1006038",
+    name: "Appaloosa Management",
+    manager: "David Tepper",
+    cik: "0001006038",
+    category: "star",
+    description: "Distressed debt and equity specialist",
+  },
+  {
+    id: "1061768",
+    name: "Baupost Group",
+    manager: "Seth Klarman",
+    cik: "0001061768",
+    category: "star",
+    description: "Deep value with strict margin-of-safety discipline",
+  },
+  {
+    id: "1079114",
+    name: "Greenlight Capital",
+    manager: "David Einhorn",
+    cik: "0001079114",
+    category: "star",
+    description: "Long/short value with activist roots",
+  },
+  {
+    id: "1418135",
+    name: "Third Point LLC",
+    manager: "Dan Loeb",
+    cik: "0001418135",
+    category: "star",
+    description: "Event-driven activist investor",
+  },
+
+  // ── Large Hedge Funds ───────────────────────────────────────────────────────
+  {
+    id: "1423689",
+    name: "Citadel Advisors",
+    manager: "Ken Griffin",
+    cik: "0001423689",
+    category: "hedge_fund",
+    description: "Multi-strategy platform; ~$446B AUM",
+  },
+  {
+    id: "1273087",
+    name: "Millennium Management",
+    manager: "Izzy Englander",
+    cik: "0001273087",
+    category: "hedge_fund",
+    description: "Multi-strategy platform; ~$505B AUM",
+  },
+  {
+    id: "1350694",
+    name: "Bridgewater Associates",
+    manager: "Ray Dalio",
+    cik: "0001350694",
+    category: "hedge_fund",
+    description: "Global macro, All Weather strategies",
+  },
+  {
+    id: "1037389",
+    name: "Renaissance Technologies",
+    manager: "Jim Simons",
+    cik: "0001037389",
+    category: "hedge_fund",
+    description: "Quantitative systematic strategies",
+  },
+  {
+    id: "1009207",
+    name: "D.E. Shaw & Co",
+    manager: "David Shaw",
+    cik: "0001009207",
+    category: "hedge_fund",
+    description: "Systematic and quantitative multi-strategy",
+  },
+  {
+    id: "1179392",
+    name: "Two Sigma Investments",
+    manager: "Overdeck & Siegel",
+    cik: "0001179392",
+    category: "hedge_fund",
+    description: "Data-driven quantitative strategies",
+  },
+  {
+    id: "1603466",
+    name: "Point72 Asset Management",
+    manager: "Steve Cohen",
+    cik: "0001603466",
+    category: "hedge_fund",
+    description: "Multi-manager discretionary and quant",
+  },
+  {
+    id: "1029997",
+    name: "Soros Fund Management",
+    manager: "George Soros",
+    cik: "0001029997",
+    category: "hedge_fund",
+    description: "Global macro; legendary for 1992 Bank of England trade",
+  },
+  {
+    id: "102909",
+    name: "Vanguard Group",
+    manager: "Salim Ramji",
+    cik: "0000102909",
+    category: "hedge_fund",
+    description: "Index pioneer; $8T+ passive AUM",
+  },
+
+  // ── Tech-focused / Growth ───────────────────────────────────────────────────
+  {
+    id: "1167483",
+    name: "Tiger Global Management",
+    manager: "Chase Coleman",
+    cik: "0001167483",
+    category: "tech_growth",
+    description: "Public and private tech-focused growth",
+  },
+  {
+    id: "1418819",
+    name: "Coatue Management",
+    manager: "Philippe Laffont",
+    cik: "0001418819",
+    category: "tech_growth",
+    description: "Technology-focused long/short equity",
+  },
+  {
+    id: "1109448",
+    name: "Viking Global Investors",
+    manager: "Andreas Halvorsen",
+    cik: "0001109448",
+    category: "tech_growth",
+    description: "Growth-oriented long/short equity",
+  },
+];
+
+// ── UI metadata ─────────────────────────────────────────────────────────────
+
+export const CATEGORY_META: Record<
+  InstitutionCategory,
+  { label: string; textColor: string; badgeCls: string }
+> = {
+  star: {
+    label: "Star Investor",
+    textColor: "text-amber-400",
+    badgeCls: "bg-amber-400/10 border border-amber-400/25 text-amber-400",
+  },
+  hedge_fund: {
+    label: "Hedge Fund",
+    textColor: "text-sky-400",
+    badgeCls: "bg-sky-400/10 border border-sky-400/25 text-sky-400",
+  },
+  tech_growth: {
+    label: "Tech / Growth",
+    textColor: "text-violet-400",
+    badgeCls: "bg-violet-400/10 border border-violet-400/25 text-violet-400",
+  },
+};
+
+export const ALL_CATEGORIES: InstitutionCategory[] = ["star", "hedge_fund", "tech_growth"];
