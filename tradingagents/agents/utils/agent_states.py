@@ -54,11 +54,14 @@ class AgentState(MessagesState):
 
     # research step
     market_report: Annotated[str, "Report from the Market Analyst"]
+    market_technician_report: Annotated[str, "Report from the Market Technician (macro/breadth/intermarket/volume structure)"]
+    quantitative_report: Annotated[str, "Report from the Quantitative Analyst (Markov 2.0 regime/edge + recommendation)"]
     sentiment_report: Annotated[str, "Report from the Sentiment Analyst"]
     news_report: Annotated[
         str, "Report from the News Researcher of current world affairs"
     ]
     fundamentals_report: Annotated[str, "Report from the Fundamentals Researcher"]
+    valuation_report: Annotated[str, "Report from the Valuation Analyst"]
 
     # researcher team discussion step
     investment_debate_state: Annotated[

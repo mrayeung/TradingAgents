@@ -12,13 +12,16 @@ from tradingagents.agents import (
     create_conservative_debator,
     create_fundamentals_analyst,
     create_market_analyst,
+    create_market_technician,
     create_msg_delete,
     create_neutral_debator,
     create_news_analyst,
     create_portfolio_manager,
+    create_quantitative_analyst,
     create_research_manager,
     create_sentiment_analyst,
     create_trader,
+    create_valuation_analyst,
 )
 from tradingagents.agents.utils.agent_states import AgentState
 
@@ -61,6 +64,8 @@ class GraphSetup:
             "social": lambda: create_sentiment_analyst(self.quick_thinking_llm),
             "news": lambda: create_news_analyst(self.quick_thinking_llm),
             "fundamentals": lambda: create_fundamentals_analyst(self.quick_thinking_llm),
+            "market_technician": lambda: create_market_technician(self.quick_thinking_llm),
+            "valuation": lambda: create_valuation_analyst(self.deep_thinking_llm),
         }
 
         # Create researcher and manager nodes
@@ -93,10 +98,12 @@ class GraphSetup:
         workflow.add_node("Neutral Analyst", neutral_analyst)
         workflow.add_node("Conservative Analyst", conservative_analyst)
         workflow.add_node("Portfolio Manager", portfolio_manager_node)
+        workflow.add_node("Quantitative Analyst", create_quantitative_analyst())
 
         # Define edges
-        # Start with the first analyst
-        workflow.add_edge(START, plan.specs[0].agent_node)
+        # Quantitative Analyst (Markov 2.0) runs first, then the analyst chain.
+        workflow.add_edge(START, "Quantitative Analyst")
+        workflow.add_edge("Quantitative Analyst", plan.specs[0].agent_node)
 
         # Connect analysts in sequence
         for i, spec in enumerate(plan.specs):

@@ -1,0 +1,26 @@
+diff --git a/macos/TradingDesk/Sources/TradingDesk/Library.swift b/macos/TradingDesk/Sources/TradingDesk/Library.swift
+index ff86d08..8758dda 100644
+--- a/macos/TradingDesk/Sources/TradingDesk/Library.swift
++++ b/macos/TradingDesk/Sources/TradingDesk/Library.swift
+@@ -58,6 +58,7 @@ final class ReportStore {
+             ((d[key] as? [String: Any])?[field] as? String) ?? ""
+         }
+         let candidates: [(String, String)] = [
++            ("Run info", s("run_info")),
+             ("Final decision", s("final_trade_decision")),
+             ("Market analysis", s("market_report")),
+             ("Sentiment analysis", s("sentiment_report")),
+diff --git a/tradingagents/graph/trading_graph.py b/tradingagents/graph/trading_graph.py
+index 53f8c70..7e30b0a 100644
+--- a/tradingagents/graph/trading_graph.py
++++ b/tradingagents/graph/trading_graph.py
+@@ -559,6 +559,9 @@ class TradingAgentsGraph:
+             },
+             "investment_plan": final_state["investment_plan"],
+             "final_trade_decision": final_state["final_trade_decision"],
++            "quantitative_report": final_state.get("quantitative_report", ""),
++            "market_technician_report": final_state.get("market_technician_report", ""),
++            "run_info": f"Generated {datetime.now().strftime('%Y-%m-%d %H:%M')} · {self.config['llm_provider']} · {self.config['deep_think_llm']} (deep) / {self.config['quick_think_llm']} (quick)",
+         }
+ 
+         # Save to file. Reject ticker values that would escape the

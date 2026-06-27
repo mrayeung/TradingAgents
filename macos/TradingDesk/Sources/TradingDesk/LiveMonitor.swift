@@ -28,6 +28,7 @@ struct LiveMonitorView: View {
         .init(title: "Sentiment analyst", nodes: ["Sentiment Analyst"], debate: nil),
         .init(title: "News analyst", nodes: ["News Analyst"], debate: nil),
         .init(title: "Fundamentals analyst", nodes: ["Fundamentals Analyst"], debate: nil),
+        .init(title: "Market technician", nodes: ["Market Technician"], debate: nil),
         .init(title: "Bull vs bear debate", nodes: ["Bull Researcher", "Bear Researcher"], debate: .investment),
         .init(title: "Research manager", nodes: ["Research Manager"], debate: nil),
         .init(title: "Trader", nodes: ["Trader"], debate: nil),

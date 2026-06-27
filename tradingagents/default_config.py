@@ -104,7 +104,7 @@ DEFAULT_CONFIG = _apply_env_overrides({
     # Debate and discussion settings
     "max_debate_rounds": 1,
     "max_risk_discuss_rounds": 1,
-    "max_recur_limit": 100,
+    "max_recur_limit": 250,
     # News / data fetching parameters
     # Increase for longer lookback strategies or to broaden macro coverage;
     # decrease to reduce token usage in agent prompts.
@@ -129,7 +129,15 @@ DEFAULT_CONFIG = _apply_env_overrides({
         "core_stock_apis": "yfinance",       # Options: alpha_vantage, yfinance
         "technical_indicators": "yfinance",  # Options: alpha_vantage, yfinance
         "fundamental_data": "yfinance",      # Options: alpha_vantage, yfinance
-        "news_data": "yfinance",             # Options: alpha_vantage, yfinance
+        # News vendor chain:    finnhub (primary) → google_news (free RSS backup) → yfinance
+        # Requires: FINNHUB_API_KEY in .env  +  pip install finnhub-python feedparser
+        # If FINNHUB_API_KEY is missing, automatically falls back to Google News RSS.
+        "news_data": "finnhub,google_news,yfinance",
+        # Social sentiment: Finnhub aggregates Reddit + StockTwits daily counts.
+        # Requires a Finnhub paid plan — free plan returns 403 for this endpoint.
+        "social_sentiment": "finnhub",
+        # SEC EDGAR: free, no key required — inactive in pipeline, available for future use.
+        "sec_data": "sec_edgar",
         "macro_data": "fred",                # Options: fred (needs FRED_API_KEY)
         "prediction_markets": "polymarket",  # Options: polymarket (keyless)
     },

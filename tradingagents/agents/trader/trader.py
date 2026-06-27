@@ -24,6 +24,12 @@ def create_trader(llm):
         company_name = state["company_of_interest"]
         instrument_context = get_instrument_context_from_state(state)
         investment_plan = state["investment_plan"]
+        quantitative_report = state.get("quantitative_report", "")
+        regime_block = (
+            "\n\nQuantitative Analyst (Markov 2.0) — independent regime/edge input; "
+            "weigh it, but only act on it when READY and it has an edge:\n"
+            f"{quantitative_report}\n" if quantitative_report else ""
+        )
 
         messages = [
             {
@@ -43,6 +49,7 @@ def create_trader(llm):
                     f"insights from current technical market trends, macroeconomic indicators, and "
                     f"social media sentiment. Use this plan as a foundation for evaluating your next "
                     f"trading decision.\n\nProposed Investment Plan: {investment_plan}\n\n"
+                    f"{regime_block}"
                     f"Leverage these insights to make an informed and strategic decision."
                 ),
             },

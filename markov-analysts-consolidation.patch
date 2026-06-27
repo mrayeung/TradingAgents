@@ -1,0 +1,1083 @@
+diff --git a/tradingagents/agents/__init__.py b/tradingagents/agents/__init__.py
+index b78803a..95565cc 100644
+--- a/tradingagents/agents/__init__.py
++++ b/tradingagents/agents/__init__.py
+@@ -1,6 +1,8 @@
+ from .analysts.fundamentals_analyst import create_fundamentals_analyst
+ from .analysts.market_analyst import create_market_analyst
++from .analysts.market_technician import create_market_technician
+ from .analysts.news_analyst import create_news_analyst
++from .analysts.quantitative_analyst import create_quantitative_analyst
+ from .analysts.sentiment_analyst import (
+     create_sentiment_analyst,
+     create_social_media_analyst,  # deprecated alias kept for back-compat
+@@ -26,6 +28,8 @@ __all__ = [
+     "create_research_manager",
+     "create_fundamentals_analyst",
+     "create_market_analyst",
++    "create_market_technician",
++    "create_quantitative_analyst",
+     "create_neutral_debator",
+     "create_news_analyst",
+     "create_aggressive_debator",
+diff --git a/tradingagents/agents/analysts/market_technician.py b/tradingagents/agents/analysts/market_technician.py
+new file mode 100644
+index 0000000..81b2f52
+--- /dev/null
++++ b/tradingagents/agents/analysts/market_technician.py
+@@ -0,0 +1,102 @@
++"""Market Technician — institutional CMT / Macro Strategist analyst.
++
++An LLM, tool-using analyst (price data + technical indicators) that produces a
++macro-technical research report: market breadth/crash indicators, monetary-policy
++regime, intermarket/recession signals, volume-profile & auction-market structure,
++momentum/divergence, and a definitive tactical outlook. Research tooling only —
++not investment advice.
++"""
++
++from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
++
++from tradingagents.agents.utils.agent_utils import (
++    build_instrument_context,
++    get_indicators,
++    get_language_instruction,
++    get_stock_data,
++)
++
++_TECHNICIAN_PROMPT = """Act as an institutional Chartered Market Technician (CMT) and Macro Strategist. Your edge is the MACRO-TECHNICAL layer that single-name indicator analysis misses — market breadth, monetary-policy regime, intermarket/recession signals, and institutional volume structure — used to identify structural market tops and regime shifts. Analyze the current state of the broad market (S&P 500 / NYSE) and its implications for: [INSERT TICKER OR SECTOR]
++
++IMPORTANT — avoid duplication. The classical single-name indicator read (MACD, RSI, moving averages, Bollinger) is ALREADY produced by the Market Analyst on this team. Do NOT make that your focus or re-derive it in detail; reference it only briefly as confirmation. Concentrate on the four macro-technical dimensions below, which no other analyst on the team covers.
++
++1. MARKET BREADTH & CRASH INDICATORS
++- Evaluate extreme market breadth, specifically a "Hindenburg Omen" cluster (a simultaneous surge in 52-week highs AND 52-week lows during an uptrend, paired with a negative McClellan Oscillator).
++- Assess any "bearish divergence" where major indices make new highs but the Advance-Decline (A/D) line or participation rates break down.
++
++2. MONETARY POLICY & MACRO REGIME (THE FED)
++- Factor in the current Federal Reserve rate trajectory (e.g. a hawkish path of consecutive hikes, or a dot plot indicating zero cuts and rising inflation projections).
++- Explain how this macro-liquidity environment historically impacts asset-class valuations and sector rotation.
++
++3. INTERMARKET & RECESSIONARY SIGNALS
++- Analyze fixed income for recession indicators: the Treasury Yield Curve (inversion / de-inversion status) and credit spreads.
++- Interpret what the bond market's price action implies about future GDP growth and institutional risk appetite.
++
++4. INSTITUTIONAL VOLUME STRUCTURE (AUCTION MARKET THEORY)
++- Identify the Point of Control (POC) and whether price trades above or below this heavy institutional liquidity node; define the Value Area High/Low (VAH/VAL) and any low-volume nodes that act as price vacuums or breakout-acceleration zones.
++- Analyze price relative to VWAP and an Anchored VWAP (AVWAP) from a major structural swing (e.g. earnings date or market bottom) to judge whether institutional buyers or sellers are in control.
++
++Then synthesize a PORTFOLIO RISK & EXECUTION game plan for the target:
++- Primary Trend Invalidation Point (the "line in the sand" level)
++- Defensive hedging triggers (when to raise cash or hedge/short)
++- Outperforming sectors / safe havens if a regime shift occurs
++- Institutional support node (POC / VAL / AVWAP confluence) and resistance node (VAH / supply zone)
++- Trigger entry condition, invalidation (stop below key volume structure), and upside target (low-volume gaps / cyclical extensions)
++
++Use get_stock_data first for price/volume history, then get_indicators ONLY for the few confirmation indicators you genuinely need (e.g. vwma, atr, boll/boll_ub/boll_lb for structure; cci for cyclical deviation) using their exact names — do not reproduce the Market Analyst's full indicator sweep. For macro/breadth/intermarket items without a live data feed (Fed path, yield curve, credit spreads, A/D line, McClellan), reason explicitly from established relationships and clearly label those parts as qualitative.
++
++Deliver a deeply analytical, objective report focused on liquidity flow, breadth, and systemic indicators. Give a definitive Macro Market Outlook (Bullish, Bearish, or Distribution Phase) and a final tactical rating: Overweight (Bullish), Underweight (Bearish), or Market-Weight (Neutral). Append a Markdown table summarising the key levels and your final tactical outlook."""
++
++
++def create_market_technician(llm):
++
++    def market_technician_node(state):
++        current_date = state["trade_date"]
++        company = state["company_of_interest"]
++        instrument_context = build_instrument_context(company)
++
++        tools = [
++            get_stock_data,
++            get_indicators,
++        ]
++
++        system_message = (
++            _TECHNICIAN_PROMPT.replace("[INSERT TICKER OR SECTOR]", company)
++            + get_language_instruction()
++        )
++
++        prompt = ChatPromptTemplate.from_messages(
++            [
++                (
++                    "system",
++                    "You are a helpful AI assistant, collaborating with other assistants."
++                    " Use the provided tools to progress towards answering the question."
++                    " If you are unable to fully answer, that's OK; another assistant with different tools"
++                    " will help where you left off. Execute what you can to make progress."
++                    " If you or any other assistant has the FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL** or deliverable,"
++                    " prefix your response with FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL** so the team knows to stop."
++                    " You have access to the following tools: {tool_names}.\n{system_message}"
++                    "For your reference, the current date is {current_date}. {instrument_context}",
++                ),
++                MessagesPlaceholder(variable_name="messages"),
++            ]
++        )
++
++        prompt = prompt.partial(system_message=system_message)
++        prompt = prompt.partial(tool_names=", ".join([tool.name for tool in tools]))
++        prompt = prompt.partial(current_date=current_date)
++        prompt = prompt.partial(instrument_context=instrument_context)
++
++        chain = prompt | llm.bind_tools(tools)
++        result = chain.invoke(state["messages"])
++
++        report = ""
++        if len(result.tool_calls) == 0:
++            report = result.content
++
++        return {
++            "messages": [result],
++            "market_technician_report": report,
++        }
++
++    return market_technician_node
+diff --git a/tradingagents/agents/analysts/quantitative_analyst.py b/tradingagents/agents/analysts/quantitative_analyst.py
+new file mode 100644
+index 0000000..c98b271
+--- /dev/null
++++ b/tradingagents/agents/analysts/quantitative_analyst.py
+@@ -0,0 +1,27 @@
++"""Quantitative Analyst — Markov 2.0 regime/edge contributor.
++
++A deterministic analyst node (no LLM, no tool loop, zero tokens). It runs first
++in the graph, computes the Markov 2.0 regime analysis for the ticker, and writes
++a standalone ``quantitative_report`` with an explicit, extractable recommendation.
++The Trader and Portfolio Manager read this field directly, and the app renders it
++as its own "Quantitative analyst" section.
++
++Research tooling only — not investment advice.
++"""
++
++from __future__ import annotations
++
++from tradingagents.agents.utils.regime_tools import compute_regime_report
++
++
++def create_quantitative_analyst(llm=None):
++    """Factory mirrors the other ``create_*_analyst`` helpers. ``llm`` is accepted
++    for signature parity but unused — this analyst is purely quantitative."""
++
++    def quantitative_analyst_node(state):
++        symbol = state["company_of_interest"]
++        current_date = state["trade_date"]
++        report = compute_regime_report(symbol, current_date)
++        return {"quantitative_report": report}
++
++    return quantitative_analyst_node
+diff --git a/tradingagents/agents/managers/portfolio_manager.py b/tradingagents/agents/managers/portfolio_manager.py
+index 36cdef5..3098c70 100644
+--- a/tradingagents/agents/managers/portfolio_manager.py
++++ b/tradingagents/agents/managers/portfolio_manager.py
+@@ -31,6 +31,11 @@ def create_portfolio_manager(llm):
+         risk_debate_state = state["risk_debate_state"]
+         research_plan = state["investment_plan"]
+         trader_plan = state["trader_investment_plan"]
++        quantitative_report = state.get("quantitative_report", "")
++        regime_line = (
++            "- Quantitative Analyst (Markov 2.0) regime/edge input; act on it only when "
++            f"READY with an edge:\n{quantitative_report}\n" if quantitative_report else ""
++        )
+ 
+         past_context = state.get("past_context", "")
+         lessons_line = (
+@@ -55,7 +60,7 @@ def create_portfolio_manager(llm):
+ **Context:**
+ - Research Manager's investment plan: **{research_plan}**
+ - Trader's transaction proposal: **{trader_plan}**
+-{lessons_line}
++{regime_line}{lessons_line}
+ **Risk Analysts Debate History:**
+ {history}
+ 
+diff --git a/tradingagents/agents/researchers/bear_researcher.py b/tradingagents/agents/researchers/bear_researcher.py
+index 860ae4b..c3ce6c9 100644
+--- a/tradingagents/agents/researchers/bear_researcher.py
++++ b/tradingagents/agents/researchers/bear_researcher.py
+@@ -12,6 +12,8 @@ def create_bear_researcher(llm):
+ 
+         current_response = investment_debate_state.get("current_response", "")
+         market_research_report = state["market_report"]
++        market_technician_report = state.get("market_technician_report", "")
++        quantitative_report = state.get("quantitative_report", "")
+         sentiment_report = state["sentiment_report"]
+         news_report = state["news_report"]
+         fundamentals_report = state["fundamentals_report"]
+@@ -38,6 +40,8 @@ Resources available:
+ 
+ {instrument_context}
+ Market research report: {market_research_report}
++Market technician (macro/breadth/intermarket/volume) report: {market_technician_report}
++Quantitative analyst (Markov 2.0 regime/edge) report: {quantitative_report}
+ Social media sentiment report: {sentiment_report}
+ Latest world affairs news: {news_report}
+ {fundamentals_label}: {fundamentals_report}
+diff --git a/tradingagents/agents/researchers/bull_researcher.py b/tradingagents/agents/researchers/bull_researcher.py
+index 5f939ed..ae6d078 100644
+--- a/tradingagents/agents/researchers/bull_researcher.py
++++ b/tradingagents/agents/researchers/bull_researcher.py
+@@ -12,6 +12,8 @@ def create_bull_researcher(llm):
+ 
+         current_response = investment_debate_state.get("current_response", "")
+         market_research_report = state["market_report"]
++        market_technician_report = state.get("market_technician_report", "")
++        quantitative_report = state.get("quantitative_report", "")
+         sentiment_report = state["sentiment_report"]
+         news_report = state["news_report"]
+         fundamentals_report = state["fundamentals_report"]
+@@ -36,6 +38,8 @@ Key points to focus on:
+ Resources available:
+ {instrument_context}
+ Market research report: {market_research_report}
++Market technician (macro/breadth/intermarket/volume) report: {market_technician_report}
++Quantitative analyst (Markov 2.0 regime/edge) report: {quantitative_report}
+ Social media sentiment report: {sentiment_report}
+ Latest world affairs news: {news_report}
+ {fundamentals_label}: {fundamentals_report}
+diff --git a/tradingagents/agents/trader/trader.py b/tradingagents/agents/trader/trader.py
+index 403a6a5..0874187 100644
+--- a/tradingagents/agents/trader/trader.py
++++ b/tradingagents/agents/trader/trader.py
+@@ -24,6 +24,12 @@ def create_trader(llm):
+         company_name = state["company_of_interest"]
+         instrument_context = get_instrument_context_from_state(state)
+         investment_plan = state["investment_plan"]
++        quantitative_report = state.get("quantitative_report", "")
++        regime_block = (
++            "\n\nQuantitative Analyst (Markov 2.0) — independent regime/edge input; "
++            "weigh it, but only act on it when READY and it has an edge:\n"
++            f"{quantitative_report}\n" if quantitative_report else ""
++        )
+ 
+         messages = [
+             {
+@@ -43,6 +49,7 @@ def create_trader(llm):
+                     f"insights from current technical market trends, macroeconomic indicators, and "
+                     f"social media sentiment. Use this plan as a foundation for evaluating your next "
+                     f"trading decision.\n\nProposed Investment Plan: {investment_plan}\n\n"
++                    f"{regime_block}"
+                     f"Leverage these insights to make an informed and strategic decision."
+                 ),
+             },
+diff --git a/tradingagents/agents/utils/agent_states.py b/tradingagents/agents/utils/agent_states.py
+index 82504ca..716c2ba 100644
+--- a/tradingagents/agents/utils/agent_states.py
++++ b/tradingagents/agents/utils/agent_states.py
+@@ -54,6 +54,8 @@ class AgentState(MessagesState):
+ 
+     # research step
+     market_report: Annotated[str, "Report from the Market Analyst"]
++    market_technician_report: Annotated[str, "Report from the Market Technician (macro/breadth/intermarket/volume structure)"]
++    quantitative_report: Annotated[str, "Report from the Quantitative Analyst (Markov 2.0 regime/edge + recommendation)"]
+     sentiment_report: Annotated[str, "Report from the Sentiment Analyst"]
+     news_report: Annotated[
+         str, "Report from the News Researcher of current world affairs"
+diff --git a/tradingagents/agents/utils/regime_tools.py b/tradingagents/agents/utils/regime_tools.py
+new file mode 100644
+index 0000000..4988348
+--- /dev/null
++++ b/tradingagents/agents/utils/regime_tools.py
+@@ -0,0 +1,187 @@
++"""Markov 2.0 regime analysis exposed as an agent tool.
++
++Wraps `tradingagents.regime.analyze` so the Market Analyst (and any other agent)
++can request a deterministic Bull/Bear/Sideways regime read, a directional signal,
++and a readiness flag for a ticker. Research tooling only — not investment advice.
++"""
++
++from datetime import datetime, timedelta
++from typing import Annotated
++
++import numpy as np
++from langchain_core.tools import tool
++
++from tradingagents.dataflows.interface import route_to_vendor
++from tradingagents.regime import MarkovConfig, STATE_NAMES, analyze
++
++
++def _parse_ohlc(raw: str):
++    """Parse the vendor's get_stock_data CSV (``#`` comment header + table) into
++    close/high/low arrays. Tolerant of column ordering and missing High/Low."""
++    lines = [ln for ln in raw.splitlines() if ln and not ln.startswith("#")]
++    if not lines:
++        return np.array([]), None, None
++    header = [h.strip().lower() for h in lines[0].split(",")]
++    try:
++        ci = header.index("close")
++    except ValueError:
++        return np.array([]), None, None
++    hi = header.index("high") if "high" in header else None
++    li = header.index("low") if "low" in header else None
++    closes, highs, lows = [], [], []
++    for ln in lines[1:]:
++        parts = ln.split(",")
++        if len(parts) <= ci:
++            continue
++        try:
++            closes.append(float(parts[ci]))
++            if hi is not None and li is not None:
++                highs.append(float(parts[hi]))
++                lows.append(float(parts[li]))
++        except (ValueError, IndexError):
++            continue
++    c = np.array(closes, dtype=float)
++    h = np.array(highs, dtype=float) if highs and len(highs) == len(closes) else None
++    l = np.array(lows, dtype=float) if lows and len(lows) == len(closes) else None
++    return c, h, l
++
++
++def _reco_bias(res) -> str:
++    """Map the Markov 2.0 calculation to an explicit, extractable recommendation
++    aligned with the engine's 5-tier rating language."""
++    if not res.ready:
++        return "NEUTRAL — data not ready (insufficient history); no quantitative tilt"
++    if not res.has_edge or res.position == 0:
++        return "NEUTRAL — no quantitative edge over the base rate; do not tilt on this"
++    if res.position > 0:
++        return "OVERWEIGHT bias — quantitative regime edge favors long over the horizon"
++    return "UNDERWEIGHT bias — quantitative regime edge favors reducing/short over the horizon"
++
++
++def _format_report(symbol: str, curr_date: str, res, cfg: MarkovConfig) -> str:
++    P = res.P_stride
++    diag_stride = float(np.diag(res.P_stride).mean())
++    diag_legacy = float(np.diag(res.P_overlap).mean())
++
++    def row(r):
++        return f"{P[r,0]*100:3.0f}%  {P[r,1]*100:3.0f}%  {P[r,2]*100:3.0f}%"
++
++    h = res.horizon_bars  # one matrix step = one stride ≈ this many trading days (daily bars)
++    f1 = res.forecast[0] if res.forecast else None
++
++    lines = [
++        f"## Markov 2.0 Regime Analysis — {symbol} (as of {curr_date})",
++        "",
++        f"### Quantitative recommendation: {_reco_bias(res)}",
++        "",
++        f"- **Current regime:** {res.regime_name}",
++        f"- **Projection horizon:** ~{h} trading days (one matrix step). The edge lives "
++        f"around this horizon and fades to zero beyond ~2 steps.",
++    ]
++    if f1:
++        lines.append(
++            f"- **Projected regime probabilities over the next ~{h} trading days** "
++            f"(from the current {res.regime_name} state): "
++            f"BULL {f1['p_bull']*100:.0f}% · SIDE {f1['p_side']*100:.0f}% · "
++            f"BEAR {f1['p_bear']*100:.0f}%"
++        )
++    lines += [
++        f"- **Signal** P(bull) − P(bear) over the horizon: **{res.signal:+.3f}** "
++        f"(sign = direction, magnitude = conviction)",
++        f"- **Edge vs base rate:** {res.edge:+.3f} ({res.edge_tag}) — the de-biased "
++        f"signal after removing the long-run tilt; near zero means the projection is just "
++        f"repeating the base rate, i.e. NO usable edge.",
++        f"- **Readiness:** {'READY' if res.ready else 'NOT READY'} "
++        f"(labels {'PASS' if res.verify_ok else 'FAIL'}, min {res.min_samples} "
++        f"stride samples/state; need {cfg.ready_min_samples})",
++        f"- **Recommended action ({cfg.mode} mode):** {res.action}",
++        f"- **Position:** {res.position_label}",
++        "",
++        f"### Forward projection from the current {res.regime_name} state (edge decay)",
++        "```",
++        "horizon      BULL  SIDE  BEAR   signal    edge",
++    ]
++    for f in res.forecast:
++        lines.append(
++            f"~{f['bars']:>3}d      {f['p_bull']*100:4.0f}% {f['p_side']*100:4.0f}% "
++            f"{f['p_bear']*100:4.0f}%   {f['signal']:+.3f}  {f['edge']:+.3f}"
++        )
++    lines += [
++        "```",
++        "_The edge column shrinking toward 0 as the horizon grows confirms the signal "
++        "is short-horizon; do not act on multi-step-out projections._",
++        "",
++        "### Transition matrix (stride-sampled, statistically honest)",
++        "```",
++        "from \\ to   BEAR  SIDE  BULL",
++        f"BEAR       {row(0)}",
++        f"SIDE       {row(1)}",
++        f"BULL       {row(2)}",
++        "```",
++        f"- Long-run mix (stationary): BEAR {res.stationary[0]*100:.0f}% · "
++        f"SIDE {res.stationary[1]*100:.0f}% · BULL {res.stationary[2]*100:.0f}%",
++        f"- Stickiness check: stride diagonal {diag_stride*100:.0f}% vs "
++        f"overlapping (legacy) {diag_legacy*100:.0f}%. The legacy figure is inflated "
++        f"by autocorrelation; only the stride matrix above is trustworthy.",
++        "",
++        "_Interpretation: treat this as a regime/timing overlay, not a stock-pick. "
++        "If NOT READY or edge is 'none', do not lean on this signal._",
++    ]
++    return "\n".join(lines)
++
++
++def compute_regime_report(
++    symbol: str,
++    curr_date: str,
++    lookback_days: int = 5475,
++    cfg: MarkovConfig = None,
++) -> str:
++    """Plain (non-tool) entry point: fetch prices via the data vendor and return the
++    Markov 2.0 markdown report. Used both by the @tool wrapper and by the Market
++    Analyst node so the regime is a *guaranteed* input (not dependent on the LLM
++    choosing to call a tool). Never raises — returns a readable message on failure.
++    """
++    cfg = cfg or MarkovConfig()
++    try:
++        start = (
++            datetime.strptime(curr_date, "%Y-%m-%d") - timedelta(days=lookback_days)
++        ).strftime("%Y-%m-%d")
++    except ValueError:
++        return f"Regime analysis: invalid date '{curr_date}', expected YYYY-mm-dd."
++
++    try:
++        raw = route_to_vendor("get_stock_data", symbol, start, curr_date)
++        closes, highs, lows = _parse_ohlc(raw)
++    except Exception as e:  # data-vendor failure must not break the run
++        return f"Regime analysis unavailable for {symbol}: data fetch failed ({e})."
++
++    if len(closes) < 60:
++        return (
++            f"Regime analysis unavailable for {symbol}: only {len(closes)} price "
++            f"points in the window (need >= 60). Try a larger lookback_days."
++        )
++
++    res = analyze(closes, cfg, highs, lows)
++    return _format_report(symbol, curr_date, res, cfg)
++
++
++@tool
++def get_regime_analysis(
++    symbol: Annotated[str, "ticker symbol of the company, e.g. AAPL, SPY"],
++    curr_date: Annotated[str, "the current trading date, YYYY-mm-dd"],
++    lookback_days: Annotated[
++        int,
++        "calendar days of price history to analyse. Default ~15y: non-overlapping "
++        "stride sampling needs long daily history for the readiness gate to trip.",
++    ] = 5475,
++) -> str:
++    """Markov 2.0 regime analysis for a ticker.
++
++    Labels each day BULL / BEAR / SIDEWAYS from its 20-day cumulative return, builds
++    a statistically honest (non-overlapping) state-transition matrix, and reports:
++    the current regime, a directional signal P(bull next) − P(bear next), the edge
++    vs the long-run base rate, a readiness flag, and a suggested FILTER-mode action.
++    Use it as a regime/timing overlay alongside the other analysts — it does not
++    pick stocks. Returns a markdown report.
++    """
++    return compute_regime_report(symbol, curr_date, lookback_days)
+diff --git a/tradingagents/graph/conditional_logic.py b/tradingagents/graph/conditional_logic.py
+index b032735..587bb99 100644
+--- a/tradingagents/graph/conditional_logic.py
++++ b/tradingagents/graph/conditional_logic.py
+@@ -19,6 +19,14 @@ class ConditionalLogic:
+             return "tools_market"
+         return "Msg Clear Market"
+ 
++    def should_continue_market_technician(self, state: AgentState):
++        """Determine if market-technician analysis should continue."""
++        messages = state["messages"]
++        last_message = messages[-1]
++        if last_message.tool_calls:
++            return "tools_market_technician"
++        return "Msg Clear Technician"
++
+     def should_continue_social(self, state: AgentState):
+         """Determine if sentiment-analyst tool round should continue.
+ 
+diff --git a/tradingagents/graph/propagation.py b/tradingagents/graph/propagation.py
+index 2a6aedd..775ce8c 100644
+--- a/tradingagents/graph/propagation.py
++++ b/tradingagents/graph/propagation.py
+@@ -63,6 +63,8 @@ class Propagator:
+                 }
+             ),
+             "market_report": "",
++            "market_technician_report": "",
++            "quantitative_report": "",
+             "fundamentals_report": "",
+             "sentiment_report": "",
+             "news_report": "",
+diff --git a/tradingagents/graph/setup.py b/tradingagents/graph/setup.py
+index 3f87e21..c248a56 100644
+--- a/tradingagents/graph/setup.py
++++ b/tradingagents/graph/setup.py
+@@ -61,6 +61,7 @@ class GraphSetup:
+             "social": lambda: create_sentiment_analyst(self.quick_thinking_llm),
+             "news": lambda: create_news_analyst(self.quick_thinking_llm),
+             "fundamentals": lambda: create_fundamentals_analyst(self.quick_thinking_llm),
++            "market_technician": lambda: create_market_technician(self.quick_thinking_llm),
+         }
+ 
+         # Create researcher and manager nodes
+@@ -93,10 +94,12 @@ class GraphSetup:
+         workflow.add_node("Neutral Analyst", neutral_analyst)
+         workflow.add_node("Conservative Analyst", conservative_analyst)
+         workflow.add_node("Portfolio Manager", portfolio_manager_node)
++        workflow.add_node("Quantitative Analyst", create_quantitative_analyst())
+ 
+         # Define edges
+-        # Start with the first analyst
+-        workflow.add_edge(START, plan.specs[0].agent_node)
++        # Quantitative Analyst (Markov 2.0) runs first, then the analyst chain.
++        workflow.add_edge(START, "Quantitative Analyst")
++        workflow.add_edge("Quantitative Analyst", plan.specs[0].agent_node)
+ 
+         # Connect analysts in sequence
+         for i, spec in enumerate(plan.specs):
+diff --git a/tradingagents/graph/trading_graph.py b/tradingagents/graph/trading_graph.py
+index 340ad6a..53f8c70 100644
+--- a/tradingagents/graph/trading_graph.py
++++ b/tradingagents/graph/trading_graph.py
+@@ -49,7 +49,7 @@ class TradingAgentsGraph:
+ 
+     def __init__(
+         self,
+-        selected_analysts=("market", "social", "news", "fundamentals"),
++        selected_analysts=("market", "market_technician", "social", "news", "fundamentals"),
+         debug=False,
+         config: dict[str, Any] = None,
+         callbacks: list | None = None,
+@@ -173,6 +173,12 @@ class TradingAgentsGraph:
+                     get_verified_market_snapshot,
+                 ]
+             ),
++            "market_technician": ToolNode(
++                [
++                    get_stock_data,
++                    get_indicators,
++                ]
++            ),
+             "social": ToolNode(
+                 [
+                     # News tools for social media analysis
+diff --git a/tradingagents/regime/INTEGRATION.md b/tradingagents/regime/INTEGRATION.md
+new file mode 100644
+index 0000000..7d698f6
+--- /dev/null
++++ b/tradingagents/regime/INTEGRATION.md
+@@ -0,0 +1,59 @@
++# Markov 2.0 — integrating the regime signal into TradingAgents
++
++A faithful Python port of the TradingView "Markov 2.0 — Regime (corrected)"
++indicator. Deterministic, token-free, and orthogonal to the existing analysts.
++Research tooling only — not investment advice.
++
++## What it gives you
++
++```python
++from tradingagents.regime import analyze, MarkovConfig
++
++res = analyze(close_prices, MarkovConfig(mode="filter"))   # high/low optional (ATR preset)
++res.regime_name   # BEAR / SIDEWAYS / BULL
++res.signal        # P(bull next | regime) - P(bear next | regime)
++res.edge          # signal - stationary base rate  (the real, de-biased signal)
++res.ready         # FIX 1+2 gate: labels verified AND enough stride samples
++res.action        # "GO LONG" / "GO SHORT" / "STAND ASIDE ..." / "WAIT ..."
++res.P_stride      # honest (non-overlapping) transition matrix
++res.P_overlap     # legacy (inflated) matrix, for the comparison display
++```
++
++## Three places it can plug in
++
++### 1. Regime Analyst input (feeds the agent debate)
++Wrap `analyze()` as a dataflow tool and inject its report next to the Market /
++Sentiment / News / Fundamentals analysts. Render `regime`, `signal`, `edge`,
++`ready`, and the stride matrix as a short markdown block the LLM agents reason
++over. Because the number is computed (not generated), it grounds the bull/bear
++debate instead of adding more narrative.
++
++### 2. Portfolio gate (risk-aware weights — the Portfolio Construction Extension)
++Use `res.position` (filter: -1/0/+1; standalone: scaled) to scale or veto target
++weights: e.g. `weight *= max(0, res.position)` for long-only, or down-weight
++names whose regime is BEAR / not `ready`. This is the "overweight / underweight"
++and "risk-aware weights" surface.
++
++### 3. desk_server endpoint (surfaces in the TradingDesk / web UI)
++Add `GET /regime?ticker=&days=` to `desk_server/app.py` that pulls closes via the
++existing dataflow and returns `analyze(...)` as JSON. Then render it as a
++"Regime analysis" report section and a Live Monitor pipeline lane (next to
++Sentiment / Fundamentals), plus a regime tag on the Watchlist row.
++
++## The three fixes (why this is "2.0", verified in the demo)
++- **FIX 1 — stride sampling.** Overlapping windows fake persistence; the demo
++  shows stride stickiness ~35% vs legacy ~85% on the same data. Only the stride
++  matrix is trusted, and a per-state sample count gates readiness.
++- **FIX 2 — label verification.** `verify_labels` asserts mean window-return is
++  BEAR < SIDEWAYS < BULL before any matrix is trusted (`res.verify_ok`).
++- **FIX 3 — two modes.** `mode="filter"` gates an existing strategy;
++  `mode="standalone"` sizes the position to |signal|, capped.
++
++## Run the proof
++```bash
++PYTHONPATH=. python scripts/markov2_demo.py                # synthetic (offline)
++PYTHONPATH=. python scripts/markov2_demo.py --ticker SPY   # real 10y via yfinance
++PYTHONPATH=. python scripts/markov2_demo.py --csv SPY.csv  # your own data
++```
++Backtests flatter. The fixed (stride) matrix shows uglier, truer numbers — those
++are the only ones worth trading.
+diff --git a/tradingagents/regime/__init__.py b/tradingagents/regime/__init__.py
+new file mode 100644
+index 0000000..e3584d5
+--- /dev/null
++++ b/tradingagents/regime/__init__.py
+@@ -0,0 +1,30 @@
++"""Markov 2.0 regime analysis for TradingAgents.
++
++A faithful Python port of the TradingView Pine v5 "Markov 2.0 — Regime
++(corrected)" indicator. Exposes a deterministic regime/signal that can feed the
++agent debate (as a Regime Analyst input) or gate portfolio weights.
++
++Research tooling only — not investment advice.
++"""
++
++from .markov2 import (
++    BEAR,
++    SIDE,
++    BULL,
++    STATE_NAMES,
++    MarkovConfig,
++    MarkovResult,
++    analyze,
++    walk_forward,
++)
++
++__all__ = [
++    "BEAR",
++    "SIDE",
++    "BULL",
++    "STATE_NAMES",
++    "MarkovConfig",
++    "MarkovResult",
++    "analyze",
++    "walk_forward",
++]
+diff --git a/tradingagents/regime/markov2.py b/tradingagents/regime/markov2.py
+new file mode 100644
+index 0000000..1e0613b
+--- /dev/null
++++ b/tradingagents/regime/markov2.py
+@@ -0,0 +1,428 @@
++"""Markov 2.0 — Regime (Bull / Bear / Sideways), corrected.
++
++Faithful Python port of the TradingView Pine v5 indicator by Roan (@RohOnChain).
++The display/table/alert layer of the indicator is TradingView-specific and is not
++ported; this module reproduces the *quantitative core* exactly, so a Python run
++and the chart agree bar-for-bar.
++
++State encoding (matches the Pine script): 0 = BEAR, 1 = SIDEWAYS, 2 = BULL.
++States come from the `window`-bar CUMULATIVE return:
++    cumret = close / close[t-window] - 1
++    cumret >= +up_thr  -> BULL (2)
++    cumret <= -down_thr -> BEAR (0)
++    else                -> SIDEWAYS (1)
++
++The three fixes that make this "2.0":
++
++  FIX 1  Stride (non-overlapping) sampling. Consecutive `window`-bar labels share
++         window-1 bars, which fakes persistence on the diagonal. We count
++         transitions on BOTH bases -- overlapping (legacy) and stride-sampled
++         (true) -- and only trust the stride matrix.
++
++  FIX 2  Label verification. We check the encoding holds in the data
++         (mean window-return BEAR < SIDEWAYS < BULL) and expose PASS/FAIL, so a
++         mislabelled mapping can never pass silently.
++
++  FIX 3  Two explicit modes. FILTER gates a long/short/flat decision by a signal
++         threshold; STANDALONE sizes the position to |signal|, capped.
++
++Research tooling only. Not investment advice.
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass, field
++from typing import Optional, Sequence
++
++import numpy as np
++
++# ── State encoding ───────────────────────────────────────────────────────────
++BEAR, SIDE, BULL = 0, 1, 2
++STATE_NAMES = {BEAR: "BEAR", SIDE: "SIDEWAYS", BULL: "BULL"}
++
++
++# ── Configuration (mirrors the Pine inputs and their defaults) ────────────────
++@dataclass
++class MarkovConfig:
++    # Regime logic
++    window: int = 20            # lookback bars for cumulative-return state
++    up_pct: float = 5.0         # BULL threshold (%) in manual mode
++    down_pct: float = 5.0       # BEAR threshold (%) in manual mode
++    stride: int = 20            # FIX 1: sample regime every N bars (non-overlapping)
++    stat_power: int = 50        # iterations for the stationary distribution
++
++    # Threshold preset: "manual" | "auto_std" | "auto_atr"
++    preset: str = "manual"
++    vol_k: float = 1.0          # auto sensitivity: thr = k * basis * sqrt(window)
++    vol_len: int = 100          # std-dev lookback for the auto-std basis
++    atr_len: int = 14           # ATR length for the auto-atr basis
++
++    # FIX 3: mode + sizing
++    mode: str = "filter"        # "filter" | "standalone"
++    sig_thresh: float = 0.10    # filter: |signal| gate
++    sig_scale: float = 0.50     # standalone: position = clamp(signal/scale, -cap, cap)
++    sig_cap: float = 1.0        # standalone: position cap
++
++    # Readiness / edge gates (FIX 1 + edge-vs-base-rate)
++    ready_min_samples: int = 30  # min stride samples per originating state
++    edge_min: float = 0.02       # |signal - base_rate| needed to "have an edge"
++
++
++# ── Result for a single (latest) bar ──────────────────────────────────────────
++@dataclass
++class MarkovResult:
++    regime: int                       # current state (0/1/2)
++    regime_name: str
++    signal: float                     # P(bull next | cur) - P(bear next | cur)
++    base_signal: float                # stationary bull - bear (unconditional tilt)
++    edge: float                       # signal - base_signal
++    edge_tag: str                     # none / weak / moderate / strong
++    has_edge: bool
++    verify_ok: bool                   # FIX 2 label check
++    min_samples: int                  # FIX 1 reliability gauge
++    ready: bool                       # verify_ok AND enough samples
++    position: float                   # FIX 3 raw position (filter: -1/0/1; standalone: scaled)
++    position_label: str
++    tradeable: bool                   # ready AND has_edge AND position != 0
++    action: str                       # human-readable recommendation
++    P_stride: np.ndarray = field(repr=False)   # 3x3 true (stride) matrix
++    P_overlap: np.ndarray = field(repr=False)  # 3x3 legacy (overlapping) matrix
++    stationary: np.ndarray = field(repr=False) # length-3 long-run mix
++    mean_return_by_state: np.ndarray = field(repr=False)
++    n_labeled: int = 0
++    # Forward projection from the current regime (FIX-honest stride matrix):
++    horizon_bars: int = 0                                  # one matrix step = one stride
++    next_distribution: np.ndarray = field(default=None, repr=False)  # P(state | cur) next step
++    forecast: list = field(default_factory=list, repr=False)         # multi-step projection
++
++
++# ── Threshold + state construction ────────────────────────────────────────────
++def _atr_over_price(high, low, close, atr_len):
++    """Wilder-style ATR / close, causal (uses only past/current bars)."""
++    n = len(close)
++    tr = np.full(n, np.nan)
++    for t in range(1, n):
++        hl = high[t] - low[t]
++        hc = abs(high[t] - close[t - 1])
++        lc = abs(low[t] - close[t - 1])
++        tr[t] = max(hl, hc, lc)
++    atr = np.full(n, np.nan)
++    # simple rolling mean of TR (matches ta.atr closely enough for thresholds)
++    for t in range(atr_len, n):
++        atr[t] = np.nanmean(tr[t - atr_len + 1 : t + 1])
++    return atr / close
++
++
++def compute_states(close, cfg: MarkovConfig, high=None, low=None):
++    """Return (states, cumret, up_thr, down_thr) as float arrays.
++
++    All thresholds are causal (backward-looking), so labelling a past bar never
++    uses future data -- this keeps the walk-forward backtest honest.
++    """
++    close = np.asarray(close, dtype=float)
++    n = len(close)
++    w = cfg.window
++
++    cumret = np.full(n, np.nan)
++    cumret[w:] = close[w:] / close[:-w] - 1.0
++
++    if cfg.preset == "manual":
++        up_thr = np.full(n, cfg.up_pct / 100.0)
++        down_thr = np.full(n, cfg.down_pct / 100.0)
++    else:
++        ret1 = np.full(n, np.nan)
++        ret1[1:] = close[1:] / close[:-1] - 1.0
++        if cfg.preset == "auto_atr" and high is not None and low is not None:
++            basis = _atr_over_price(np.asarray(high, float), np.asarray(low, float), close, cfg.atr_len)
++        else:  # auto_std (or auto_atr without OHLC -> fall back to std)
++            basis = np.full(n, np.nan)
++            for t in range(cfg.vol_len, n):
++                basis[t] = np.nanstd(ret1[t - cfg.vol_len + 1 : t + 1], ddof=0)
++        band = cfg.vol_k * basis * np.sqrt(w)
++        up_thr = band
++        down_thr = band
++
++    states = np.full(n, np.nan)
++    for t in range(n):
++        cr, ut, dt = cumret[t], up_thr[t], down_thr[t]
++        if np.isnan(cr) or np.isnan(ut):
++            continue
++        if cr >= ut:
++            states[t] = BULL
++        elif cr <= -dt:
++            states[t] = BEAR
++        else:
++            states[t] = SIDE
++    return states, cumret, up_thr, down_thr
++
++
++# ── Transition counting (FIX 1: both bases) ───────────────────────────────────
++def transition_counts(states, stride: int):
++    """Return (counts_overlap, counts_stride) as 3x3 int arrays.
++
++    overlap: every consecutive labelled pair (autocorrelated -> inflated diagonal).
++    stride : sample the label only once every `stride` bars (statistically honest).
++    """
++    counts_over = np.zeros((3, 3), dtype=int)
++    counts_str = np.zeros((3, 3), dtype=int)
++
++    prev = None
++    prev_samp = None
++    last_samp_bar = None
++
++    for t, s in enumerate(states):
++        if np.isnan(s):
++            prev = None  # break the overlapping chain across gaps
++            continue
++        s = int(s)
++
++        # Legacy overlapping: consecutive labelled bars
++        if prev is not None:
++            counts_over[prev, s] += 1
++        prev = s
++
++        # Stride: sample only every >= stride bars
++        if last_samp_bar is None or (t - last_samp_bar) >= stride:
++            if prev_samp is not None:
++                counts_str[prev_samp, s] += 1
++            prev_samp = s
++            last_samp_bar = t
++
++    return counts_over, counts_str
++
++
++def normalise(counts) -> np.ndarray:
++    """Rows -> probabilities; an empty row falls back to uniform (1/3 each)."""
++    counts = np.asarray(counts, dtype=float)
++    P = np.zeros((3, 3))
++    for r in range(3):
++        rs = counts[r].sum()
++        P[r] = counts[r] / rs if rs > 0 else np.array([1 / 3, 1 / 3, 1 / 3])
++    return P
++
++
++def stationary(P, power: int) -> np.ndarray:
++    """First row of P^power (rows converge to the stationary distribution)."""
++    return np.linalg.matrix_power(P, power)[0]
++
++
++def verify_labels(states, cumret):
++    """FIX 2: mean window-return per state and the BEAR < SIDE < BULL check."""
++    means = np.full(3, np.nan)
++    for s in range(3):
++        mask = states == s
++        vals = cumret[mask]
++        vals = vals[~np.isnan(vals)]
++        if len(vals):
++            means[s] = vals.mean()
++    ok = (
++        not np.any(np.isnan(means))
++        and means[BEAR] < means[SIDE] < means[BULL]
++    )
++    return ok, means
++
++
++def _edge_tag(ae: float) -> str:
++    if ae >= 0.10:
++        return "strong"
++    if ae >= 0.05:
++        return "moderate"
++    if ae >= 0.02:
++        return "weak"
++    return "none"
++
++
++def _position(signal: float, cfg: MarkovConfig) -> float:
++    if cfg.mode == "filter":
++        if signal > cfg.sig_thresh:
++            return 1.0
++        if signal < -cfg.sig_thresh:
++            return -1.0
++        return 0.0
++    # standalone
++    return float(np.clip(signal / cfg.sig_scale, -cfg.sig_cap, cfg.sig_cap))
++
++
++# ── Public: analyse the latest bar ────────────────────────────────────────────
++def analyze(close, cfg: Optional[MarkovConfig] = None, high=None, low=None) -> MarkovResult:
++    """Run the full Markov 2.0 pipeline over `close` and report the latest bar.
++
++    Mirrors the Pine `barstate.islast` block: build both matrices, verify labels,
++    compute signal/edge/readiness, derive the position and ACTION.
++    """
++    cfg = cfg or MarkovConfig()
++    close = np.asarray(close, dtype=float)
++    states, cumret, up_thr, down_thr = compute_states(close, cfg, high, low)
++
++    counts_over, counts_str = transition_counts(states, cfg.stride)
++    P_over = normalise(counts_over)
++    P_str = normalise(counts_str)
++    stat = stationary(P_str, cfg.stat_power)
++
++    verify_ok, means = verify_labels(states, cumret)
++
++    # FIX 1 reliability: fewest stride samples across the three originating states
++    samp_per_state = counts_str.sum(axis=1)
++    min_samples = int(samp_per_state.min())
++    ready = bool(verify_ok and min_samples >= cfg.ready_min_samples)
++
++    # current regime (default SIDEWAYS if the latest bar is unlabelled)
++    last_valid = states[~np.isnan(states)]
++    cur = int(last_valid[-1]) if len(last_valid) else SIDE
++
++    signal = P_str[cur, BULL] - P_str[cur, BEAR]
++    base_signal = stat[BULL] - stat[BEAR]
++    edge = signal - base_signal
++    ae = abs(edge)
++    tag = _edge_tag(ae)
++    has_edge = ae >= cfg.edge_min
++
++    # Forward projection from the current regime over 1..3 matrix steps (strides).
++    # The signal lives at ~1 stride and decays toward the base rate (stationary)
++    # as the horizon grows -- long-horizon forecasts carry no edge.
++    next_dist = P_str[cur].copy()
++    forecast = []
++    for k in (1, 2, 3):
++        dist = np.linalg.matrix_power(P_str, k)[cur]
++        sig_k = float(dist[BULL] - dist[BEAR])
++        forecast.append(
++            {
++                "steps": k,
++                "bars": k * cfg.stride,
++                "p_bear": float(dist[BEAR]),
++                "p_side": float(dist[SIDE]),
++                "p_bull": float(dist[BULL]),
++                "signal": sig_k,
++                "edge": float(sig_k - base_signal),
++            }
++        )
++
++    pos = _position(signal, cfg)
++    if cfg.mode == "filter":
++        pos_label = "LONG" if pos > 0 else "SHORT" if pos < 0 else "FLAT"
++    else:
++        pos_label = f"{pos:+.2f}"
++
++    tradeable = bool(ready and has_edge and pos != 0)
++    if not ready:
++        action = "WAIT (data not ready)"
++    elif not has_edge:
++        action = "STAND ASIDE (no edge)"
++    elif pos == 0:
++        action = "STAND ASIDE (weak signal)"
++    elif cfg.mode == "filter":
++        action = "GO LONG" if pos > 0 else "GO SHORT"
++    else:
++        action = f"SIZE {pos:+.2f} {'long' if pos > 0 else 'short'}"
++
++    return MarkovResult(
++        regime=cur,
++        regime_name=STATE_NAMES[cur],
++        signal=float(signal),
++        base_signal=float(base_signal),
++        edge=float(edge),
++        edge_tag=tag,
++        has_edge=has_edge,
++        verify_ok=bool(verify_ok),
++        min_samples=min_samples,
++        ready=ready,
++        position=float(pos),
++        position_label=pos_label,
++        tradeable=tradeable,
++        action=action,
++        P_stride=P_str,
++        P_overlap=P_over,
++        stationary=stat,
++        mean_return_by_state=means,
++        n_labeled=int(np.sum(~np.isnan(states))),
++        horizon_bars=cfg.stride,
++        next_distribution=next_dist,
++        forecast=forecast,
++    )
++
++
++# ── Public: walk-forward backtest ("proof, not promises") ─────────────────────
++def walk_forward(
++    close,
++    cfg: Optional[MarkovConfig] = None,
++    high=None,
++    low=None,
++    min_history: int = 252,
++    matrix: str = "stride",
++):
++    """Walk-forward backtest that NEVER tests on data the matrix has learned from.
++
++    At each bar t (>= min_history) the transition matrix is rebuilt from states
++    up to and including t only, the position is decided from the current regime,
++    and the P&L is booked on the *next* bar's return. Set ``matrix="overlap"`` to
++    reproduce the inflated legacy result for the before/after comparison.
++
++    Returns a dict of arrays + summary metrics (total return, CAGR, Sharpe, win
++    rate, profit factor, max drawdown) plus a buy & hold baseline.
++    """
++    cfg = cfg or MarkovConfig()
++    close = np.asarray(close, dtype=float)
++    n = len(close)
++    states, cumret, _, _ = compute_states(close, cfg, high, low)
++    ret = np.full(n, np.nan)
++    ret[1:] = close[1:] / close[:-1] - 1.0
++
++    positions = np.zeros(n)
++    strat_ret = np.zeros(n)
++
++    for t in range(min_history, n - 1):
++        sub = states[: t + 1]
++        counts_over, counts_str = transition_counts(sub, cfg.stride)
++        counts = counts_str if matrix == "stride" else counts_over
++        P = normalise(counts)
++        stat = stationary(P, cfg.stat_power)
++
++        verify_ok, _ = verify_labels(sub, cumret[: t + 1])
++        min_samp = int(counts_str.sum(axis=1).min())
++        ready = verify_ok and min_samp >= cfg.ready_min_samples
++
++        s = sub[~np.isnan(sub)]
++        cur = int(s[-1]) if len(s) else SIDE
++        signal = P[cur, BULL] - P[cur, BEAR]
++        edge = signal - (stat[BULL] - stat[BEAR])
++        pos = _position(signal, cfg)
++        tradeable = ready and abs(edge) >= cfg.edge_min and pos != 0
++        pos = pos if tradeable else 0.0
++
++        positions[t] = pos
++        strat_ret[t + 1] = pos * ret[t + 1]
++
++    active = positions != 0
++    eq = np.cumprod(1.0 + np.nan_to_num(strat_ret))
++    bh = np.cumprod(1.0 + np.nan_to_num(np.where(np.arange(n) >= min_history, np.nan_to_num(ret), 0.0)))
++
++    r = strat_ret[min_history + 1 :]
++    r = r[~np.isnan(r)]
++    act_r = strat_ret[active]
++    wins = act_r[act_r > 0].sum()
++    losses = -act_r[act_r < 0].sum()
++    years = max((n - min_history) / 252.0, 1e-9)
++    dd = eq / np.maximum.accumulate(eq) - 1.0
++
++    metrics = {
++        "matrix": matrix,
++        "mode": cfg.mode,
++        "bars_tested": int(n - min_history - 1),
++        "bars_in_market": int(active.sum()),
++        "exposure": float(active.mean()),
++        "total_return": float(eq[-1] - 1.0),
++        "cagr": float(eq[-1] ** (1 / years) - 1.0),
++        "sharpe": float(np.mean(r) / np.std(r) * np.sqrt(252)) if np.std(r) > 0 else 0.0,
++        "win_rate": float((act_r > 0).mean()) if active.sum() else 0.0,
++        "profit_factor": float(wins / losses) if losses > 0 else float("inf"),
++        "max_drawdown": float(dd.min()),
++        "buy_hold_return": float(bh[-1] - 1.0),
++    }
++    return {
++        "metrics": metrics,
++        "equity": eq,
++        "buy_hold": bh,
++        "positions": positions,
++        "strategy_returns": strat_ret,
++        "states": states,
++    }

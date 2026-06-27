@@ -114,7 +114,9 @@ def run_blocking(handle: RunHandle, run_config: dict) -> None:
                 saved_env[env_name] = os.environ.get(env_name)
                 os.environ[env_name] = value
 
-        analysts = run_config.get("analysts") or ["market", "social", "news", "fundamentals"]
+        analysts = run_config.get("analysts") or ["market", "social", "news", "fundamentals", "valuation"]
+        if "market_technician" not in analysts:
+            analysts = list(analysts) + ["market_technician"]
         cfg = build_engine_config(run_config)
         differ = SnapshotDiffer(analysts)
         stats = StatsCallbackHandler()

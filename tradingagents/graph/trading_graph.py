@@ -27,6 +27,10 @@ from tradingagents.agents.utils.agent_utils import (
     get_verified_market_snapshot,
     resolve_instrument_identity,
 )
+from tradingagents.agents.utils.valuation_tools import (
+    get_peer_comparables,
+    get_valuation_metrics,
+)
 from tradingagents.agents.utils.memory import TradingMemoryLog
 from tradingagents.dataflows.config import set_config
 from tradingagents.dataflows.utils import safe_ticker_component
@@ -49,7 +53,7 @@ class TradingAgentsGraph:
 
     def __init__(
         self,
-        selected_analysts=("market", "social", "news", "fundamentals"),
+        selected_analysts=("market", "market_technician", "social", "news", "fundamentals"),
         debug=False,
         config: dict[str, Any] = None,
         callbacks: list | None = None,
@@ -139,7 +143,7 @@ class TradingAgentsGraph:
             if thinking_level:
                 kwargs["thinking_level"] = thinking_level
 
-        elif provider == "openai":
+        elif provider in ("openai", "openrouter"):
             reasoning_effort = self.config.get("openai_reasoning_effort")
             if reasoning_effort:
                 kwargs["reasoning_effort"] = reasoning_effort
@@ -173,6 +177,12 @@ class TradingAgentsGraph:
                     get_verified_market_snapshot,
                 ]
             ),
+            "market_technician": ToolNode(
+                [
+                    get_stock_data,
+                    get_indicators,
+                ]
+            ),
             "social": ToolNode(
                 [
                     # News tools for social media analysis
@@ -198,6 +208,7 @@ class TradingAgentsGraph:
                     get_income_statement,
                 ]
             ),
+            "valuation": ToolNode([get_valuation_metrics, get_peer_comparables]),
         }
 
     def _resolve_benchmark(self, ticker: str) -> str:
@@ -553,6 +564,9 @@ class TradingAgentsGraph:
             },
             "investment_plan": final_state["investment_plan"],
             "final_trade_decision": final_state["final_trade_decision"],
+            "quantitative_report": final_state.get("quantitative_report", ""),
+            "market_technician_report": final_state.get("market_technician_report", ""),
+            "run_info": f"Generated {datetime.now().strftime('%Y-%m-%d %H:%M')} · {self.config['llm_provider']} · {self.config['deep_think_llm']} (deep) / {self.config['quick_think_llm']} (quick)",
         }
 
         # Save to file. Reject ticker values that would escape the

@@ -1,0 +1,18 @@
+diff --git a/tradingagents/graph/analyst_execution.py b/tradingagents/graph/analyst_execution.py
+index 0e65374..fd1c858 100644
+--- a/tradingagents/graph/analyst_execution.py
++++ b/tradingagents/graph/analyst_execution.py
+@@ -50,6 +50,13 @@ ANALYST_NODE_SPECS: dict[str, AnalystNodeSpec] = {
+         tool_node="tools_fundamentals",
+         report_key="fundamentals_report",
+     ),
++    "market_technician": AnalystNodeSpec(
++        key="market_technician",
++        agent_node="Market Technician",
++        clear_node="Msg Clear Technician",
++        tool_node="tools_market_technician",
++        report_key="market_technician_report",
++    ),
+ }
+ 
+ 

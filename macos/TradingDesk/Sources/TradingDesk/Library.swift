@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct ReportSummary: Identifiable {
     var id: String { "\(ticker)-\(date)" }
@@ -58,11 +59,14 @@ final class ReportStore {
             ((d[key] as? [String: Any])?[field] as? String) ?? ""
         }
         let candidates: [(String, String)] = [
+            ("Run info", s("run_info")),
             ("Final decision", s("final_trade_decision")),
             ("Market analysis", s("market_report")),
             ("Sentiment analysis", s("sentiment_report")),
             ("News analysis", s("news_report")),
             ("Fundamentals analysis", s("fundamentals_report")),
+            ("Quantitative analyst", s("quantitative_report")),
+            ("Market technician", s("market_technician_report")),
             ("Research plan", s("investment_plan")),
             ("Bull case", nested("investment_debate_state", "bull_history")),
             ("Bear case", nested("investment_debate_state", "bear_history")),
@@ -154,6 +158,8 @@ struct RunDocumentView: View {
                 }
                 Spacer()
                 if let rating = summary.rating { RatingChip(rating: rating) }
+                Button("Print / PDF") { printDocument() }
+                    .disabled(sections.isEmpty)
                 Button("Done") { dismiss() }.buttonStyle(PrimaryButtonStyle())
             }
             .padding(Space.l)
@@ -184,6 +190,28 @@ struct RunDocumentView: View {
         }
         .frame(minWidth: 560, minHeight: 560)
         .task { sections = await store.loadDoc(ticker: summary.ticker, date: summary.date) }
+    }
+
+    private func printDocument() {
+        let title = "\(summary.ticker) · \(DeskFormat.shortDate(summary.date))\n\n"
+        let text = title + sections.map { "\($0.title)\n\n\($0.body)" }.joined(separator: "\n\n\n")
+        let info = NSPrintInfo.shared
+        info.topMargin = 40; info.bottomMargin = 40
+        info.leftMargin = 40; info.rightMargin = 40
+        info.horizontalPagination = .fit
+        info.verticalPagination = .automatic
+        let width = info.paperSize.width - info.leftMargin - info.rightMargin
+        let tv = NSTextView(frame: NSRect(x: 0, y: 0, width: width, height: 100))
+        tv.isVerticallyResizable = true
+        tv.isHorizontallyResizable = false
+        tv.textContainer?.containerSize = NSSize(width: width, height: .greatestFiniteMagnitude)
+        tv.textContainer?.widthTracksTextView = true
+        tv.font = NSFont.systemFont(ofSize: 11)
+        tv.string = text
+        tv.sizeToFit()
+        let op = NSPrintOperation(view: tv, printInfo: info)
+        op.showsPrintPanel = true
+        op.run()
     }
 
     private static func markdown(_ s: String) -> AttributedString {

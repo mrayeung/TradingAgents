@@ -94,6 +94,7 @@ final class SettingsStore {
     /// Engine analyst keys in canonical order (matches AnalystType wire values).
     static let analystOptions: [(key: String, label: String)] = [
         ("market", "Market"),
+        ("market_technician", "Market Technician"),
         ("social", "Sentiment"),
         ("news", "News"),
         ("fundamentals", "Fundamentals"),

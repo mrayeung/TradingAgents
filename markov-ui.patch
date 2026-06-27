@@ -1,0 +1,91 @@
+diff --git a/desk_adapter/diff.py b/desk_adapter/diff.py
+index db22064..2074e20 100644
+--- a/desk_adapter/diff.py
++++ b/desk_adapter/diff.py
+@@ -22,15 +22,17 @@ from typing import Any
+ 
+ # --- Static maps (mirror cli/main.py MessageBuffer) ---
+ 
+-ANALYST_ORDER = ["market", "social", "news", "fundamentals"]
++ANALYST_ORDER = ["market", "market_technician", "social", "news", "fundamentals"]
+ ANALYST_AGENT = {
+     "market": "Market Analyst",
++    "market_technician": "Market Technician",
+     "social": "Sentiment Analyst",
+     "news": "News Analyst",
+     "fundamentals": "Fundamentals Analyst",
+ }
+ ANALYST_REPORT = {
+     "market": "market_report",
++    "market_technician": "market_technician_report",
+     "social": "sentiment_report",
+     "news": "news_report",
+     "fundamentals": "fundamentals_report",
+@@ -40,6 +42,8 @@ RISK_AGENTS = ["Aggressive Analyst", "Conservative Analyst", "Neutral Analyst"]
+ 
+ REPORT_TITLES = {
+     "market_report": "Market analysis",
++    "market_technician_report": "Market technician",
++    "quantitative_report": "Quantitative analyst",
+     "sentiment_report": "Sentiment analysis",
+     "news_report": "News analysis",
+     "fundamentals_report": "Fundamentals analysis",
+@@ -49,6 +53,8 @@ REPORT_TITLES = {
+ }
+ REPORT_FINALIZER = {
+     "market_report": "Market Analyst",
++    "market_technician_report": "Market Technician",
++    "quantitative_report": "Quantitative Analyst",
+     "sentiment_report": "Sentiment Analyst",
+     "news_report": "News Analyst",
+     "fundamentals_report": "Fundamentals Analyst",
+diff --git a/desk_server/runner.py b/desk_server/runner.py
+index c96cd18..b43601c 100644
+--- a/desk_server/runner.py
++++ b/desk_server/runner.py
+@@ -115,6 +115,8 @@ def run_blocking(handle: RunHandle, run_config: dict) -> None:
+                 os.environ[env_name] = value
+ 
+         analysts = run_config.get("analysts") or ["market", "social", "news", "fundamentals"]
++        if "market_technician" not in analysts:
++            analysts = list(analysts) + ["market_technician"]
+         cfg = build_engine_config(run_config)
+         differ = SnapshotDiffer(analysts)
+         stats = StatsCallbackHandler()
+diff --git a/macos/TradingDesk/Sources/TradingDesk/Library.swift b/macos/TradingDesk/Sources/TradingDesk/Library.swift
+index 2aeb708..ff86d08 100644
+--- a/macos/TradingDesk/Sources/TradingDesk/Library.swift
++++ b/macos/TradingDesk/Sources/TradingDesk/Library.swift
+@@ -63,6 +63,8 @@ final class ReportStore {
+             ("Sentiment analysis", s("sentiment_report")),
+             ("News analysis", s("news_report")),
+             ("Fundamentals analysis", s("fundamentals_report")),
++            ("Quantitative analyst", s("quantitative_report")),
++            ("Market technician", s("market_technician_report")),
+             ("Research plan", s("investment_plan")),
+             ("Bull case", nested("investment_debate_state", "bull_history")),
+             ("Bear case", nested("investment_debate_state", "bear_history")),
+diff --git a/macos/TradingDesk/Sources/TradingDesk/LiveMonitor.swift b/macos/TradingDesk/Sources/TradingDesk/LiveMonitor.swift
+index 163bc17..a895ea3 100644
+--- a/macos/TradingDesk/Sources/TradingDesk/LiveMonitor.swift
++++ b/macos/TradingDesk/Sources/TradingDesk/LiveMonitor.swift
+@@ -28,6 +28,7 @@ struct LiveMonitorView: View {
+         .init(title: "Sentiment analyst", nodes: ["Sentiment Analyst"], debate: nil),
+         .init(title: "News analyst", nodes: ["News Analyst"], debate: nil),
+         .init(title: "Fundamentals analyst", nodes: ["Fundamentals Analyst"], debate: nil),
++        .init(title: "Market technician", nodes: ["Market Technician"], debate: nil),
+         .init(title: "Bull vs bear debate", nodes: ["Bull Researcher", "Bear Researcher"], debate: .investment),
+         .init(title: "Research manager", nodes: ["Research Manager"], debate: nil),
+         .init(title: "Trader", nodes: ["Trader"], debate: nil),
+diff --git a/macos/TradingDesk/Sources/TradingDesk/SettingsStore.swift b/macos/TradingDesk/Sources/TradingDesk/SettingsStore.swift
+index a0cd14f..0485f87 100644
+--- a/macos/TradingDesk/Sources/TradingDesk/SettingsStore.swift
++++ b/macos/TradingDesk/Sources/TradingDesk/SettingsStore.swift
+@@ -94,6 +94,7 @@ final class SettingsStore {
+     /// Engine analyst keys in canonical order (matches AnalystType wire values).
+     static let analystOptions: [(key: String, label: String)] = [
+         ("market", "Market"),
++        ("market_technician", "Market Technician"),
+         ("social", "Sentiment"),
+         ("news", "News"),
+         ("fundamentals", "Fundamentals"),

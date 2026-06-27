@@ -22,15 +22,17 @@ from typing import Any
 
 # --- Static maps (mirror cli/main.py MessageBuffer) ---
 
-ANALYST_ORDER = ["market", "social", "news", "fundamentals"]
+ANALYST_ORDER = ["market", "market_technician", "social", "news", "fundamentals"]
 ANALYST_AGENT = {
     "market": "Market Analyst",
+    "market_technician": "Market Technician",
     "social": "Sentiment Analyst",
     "news": "News Analyst",
     "fundamentals": "Fundamentals Analyst",
 }
 ANALYST_REPORT = {
     "market": "market_report",
+    "market_technician": "market_technician_report",
     "social": "sentiment_report",
     "news": "news_report",
     "fundamentals": "fundamentals_report",
@@ -40,6 +42,8 @@ RISK_AGENTS = ["Aggressive Analyst", "Conservative Analyst", "Neutral Analyst"]
 
 REPORT_TITLES = {
     "market_report": "Market analysis",
+    "market_technician_report": "Market technician",
+    "quantitative_report": "Quantitative analyst",
     "sentiment_report": "Sentiment analysis",
     "news_report": "News analysis",
     "fundamentals_report": "Fundamentals analysis",
@@ -49,6 +53,8 @@ REPORT_TITLES = {
 }
 REPORT_FINALIZER = {
     "market_report": "Market Analyst",
+    "market_technician_report": "Market Technician",
+    "quantitative_report": "Quantitative Analyst",
     "sentiment_report": "Sentiment Analyst",
     "news_report": "News Analyst",
     "fundamentals_report": "Fundamentals Analyst",

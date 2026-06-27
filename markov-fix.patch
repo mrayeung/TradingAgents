@@ -1,0 +1,30 @@
+diff --git a/tradingagents/agents/analysts/market_technician.py b/tradingagents/agents/analysts/market_technician.py
+index 81b2f52..d348f18 100644
+--- a/tradingagents/agents/analysts/market_technician.py
++++ b/tradingagents/agents/analysts/market_technician.py
+@@ -43,7 +43,7 @@ Then synthesize a PORTFOLIO RISK & EXECUTION game plan for the target:
+ - Institutional support node (POC / VAL / AVWAP confluence) and resistance node (VAH / supply zone)
+ - Trigger entry condition, invalidation (stop below key volume structure), and upside target (low-volume gaps / cyclical extensions)
+ 
+-Use get_stock_data first for price/volume history, then get_indicators ONLY for the few confirmation indicators you genuinely need (e.g. vwma, atr, boll/boll_ub/boll_lb for structure; cci for cyclical deviation) using their exact names — do not reproduce the Market Analyst's full indicator sweep. For macro/breadth/intermarket items without a live data feed (Fed path, yield curve, credit spreads, A/D line, McClellan), reason explicitly from established relationships and clearly label those parts as qualitative.
++Use get_stock_data first for price/volume history, then get_indicators ONLY for the few confirmation indicators you genuinely need (e.g. vwma, atr, boll/boll_ub/boll_lb for structure; cci for cyclical deviation) using their exact names, and pass look_back_days=180 (about six months) so the structural and cyclical reads have enough macro context — do not reproduce the Market Analyst's full indicator sweep. For macro/breadth/intermarket items without a live data feed (Fed path, yield curve, credit spreads, A/D line, McClellan), reason explicitly from established relationships and clearly label those parts as qualitative.
+ 
+ Deliver a deeply analytical, objective report focused on liquidity flow, breadth, and systemic indicators. Give a definitive Macro Market Outlook (Bullish, Bearish, or Distribution Phase) and a final tactical rating: Overweight (Bullish), Underweight (Bearish), or Market-Weight (Neutral). Append a Markdown table summarising the key levels and your final tactical outlook."""
+ 
+diff --git a/tradingagents/graph/setup.py b/tradingagents/graph/setup.py
+index c248a56..54d33b6 100644
+--- a/tradingagents/graph/setup.py
++++ b/tradingagents/graph/setup.py
+@@ -12,10 +12,12 @@ from tradingagents.agents import (
+     create_conservative_debator,
+     create_fundamentals_analyst,
+     create_market_analyst,
++    create_market_technician,
+     create_msg_delete,
+     create_neutral_debator,
+     create_news_analyst,
+     create_portfolio_manager,
++    create_quantitative_analyst,
+     create_research_manager,
+     create_sentiment_analyst,
+     create_trader,

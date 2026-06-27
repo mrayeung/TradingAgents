@@ -31,6 +31,12 @@ dependencies = [
     "tqdm>=4.67.1",
     "typing-extensions>=4.14.0",
     "yfinance>=1.4.1",
+    # News vendor additions (Finnhub primary + Google News RSS fallback)
+    "feedparser>=6.0.0",       # Google News RSS fallback — no API key required
+    "finnhub-python>=2.4.0",   # Finnhub primary news + social sentiment (paid plan)
+    # Portfolio construction engine
+    "numpy>=1.26.0",           # BL matrix operations + optimiser gradient
+    "scipy>=1.13.0",           # constrained mean-variance optimisation (SLSQP)
 ]
 
 [project.optional-dependencies]
