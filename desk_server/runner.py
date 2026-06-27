@@ -69,14 +69,14 @@ class RunHandle:
         self.seq = 0
         self.done = False
         self.cancelled = False
-        self.status = "warming"
+        self.status = "queued"   # transitions to "warming" when executor picks it up
         self.updated = asyncio.Event()
 
     # -- loop-thread only --
     def _append(self, event_type: str, fields: dict[str, Any]) -> None:
         self.seq += 1
         self.events.append(build_event(self.run_id, self.seq, event_type, fields))
-        if event_type in ("started", "done", "error", "cancelled"):
+        if event_type in ("warming", "started", "done", "error", "cancelled"):
             self.status = event_type
         self.updated.set()
 

@@ -243,6 +243,7 @@ function ActiveRunsBanner({
               run.status === "cancelled" ? "text-slate-500"   : "text-sky-400"
             )}>
               {run.status === "pending"   ? "Queued…" :
+               run.status === "queued"    ? "Queued — waiting for active run" :
                run.status === "warming"   ? "Warming up…" :
                run.status === "started"   ? "Analysing…" :
                run.status === "done"      ? "Complete — results updated" :

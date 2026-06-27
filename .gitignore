@@ -240,3 +240,8 @@ __marimo__/
 # Enterprise env file (secrets) and generated run reports
 .env.enterprise
 reports/
+
+# Web frontend — un-ignore files that would otherwise be swallowed by bare
+# patterns above (lib/ matches web/src/lib/, reports/ matches web/src/app/.../reports/)
+!web/
+!web/**
