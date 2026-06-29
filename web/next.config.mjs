@@ -1,15 +1,19 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // The portfolio API lives on localhost:8765 (Docker container)
-  // Rewrite /api/* → localhost:8765/* so the browser never needs to hit a
-  // cross-origin URL in production builds (dev uses CORS + direct fetch).
+  // The portfolio API lives on localhost:8765 (Docker container).
+  //
+  // We use `afterFiles` so Next.js resolves its own route handlers first
+  // (e.g. app/api/institutions/[cik]/route.ts).  Only paths that have no
+  // matching Next.js route file fall through to the desk-server proxy.
   async rewrites() {
-    return [
-      {
-        source: "/api/:path*",
-        destination: "http://localhost:8765/:path*",
-      },
-    ];
+    return {
+      afterFiles: [
+        {
+          source: "/api/:path*",
+          destination: "http://localhost:8765/:path*",
+        },
+      ],
+    };
   },
 };
 
