@@ -260,12 +260,14 @@ export async function GET(
 
   console.log(`[13F] GET /api/institutions/${cik} → entity: ${institution.name}, cik: ${institution.cik}`);
 
+  const NO_CACHE = { "Cache-Control": "no-store, must-revalidate" };
+
   // ── Tier 1: file cache (written by prefetch-edgar.mjs) ──────────────────────
   const cached = readFileCache(institution.cik);
   if (cached) {
     console.log(`[13F] file cache HIT for CIK ${institution.cik}`);
     return NextResponse.json(cached, {
-      headers: { "X-Cache": "HIT", "X-Cache-Source": "file" },
+      headers: { ...NO_CACHE, "X-Cache": "HIT", "X-Cache-Source": "file" },
     });
   }
   console.log(`[13F] file cache MISS — hitting SEC EDGAR live`);
@@ -278,7 +280,7 @@ export async function GET(
     if (filings.length === 0) {
       return NextResponse.json(
         { error: "No 13F-HR filings found for this institution — check terminal logs" },
-        { status: 404 }
+        { status: 404, headers: NO_CACHE }
       );
     }
 
@@ -289,7 +291,7 @@ export async function GET(
     if (!currentXml) {
       return NextResponse.json(
         { error: "Could not retrieve holdings data from SEC EDGAR" },
-        { status: 502 }
+        { status: 502, headers: NO_CACHE }
       );
     }
 
@@ -361,12 +363,12 @@ export async function GET(
       holdings,
     };
 
-    return NextResponse.json(payload);
+    return NextResponse.json(payload, { headers: NO_CACHE });
   } catch (err) {
     console.error(`13F API error for CIK ${cik}:`, err);
     return NextResponse.json(
       { error: "Failed to fetch SEC EDGAR data" },
-      { status: 502 }
+      { status: 502, headers: NO_CACHE }
     );
   }
 }

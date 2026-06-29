@@ -61,7 +61,7 @@ function useTileData(id: string, delayMs = 0): TileState {
     let cancelled = false;
     const timer = setTimeout(async () => {
       try {
-        const r = await fetch(`/api/institutions/${id}`);
+        const r = await fetch(`/api/institutions/${id}`, { cache: "no-store" });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const data = await r.json() as HoldingsPayload;
         _cache.set(id, data);

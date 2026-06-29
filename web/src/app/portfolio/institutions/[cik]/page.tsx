@@ -127,7 +127,7 @@ export default function InstitutionDetailPage() {
     if (!cik) return;
     setLoading(true);
     setError(null);
-    fetch(`/api/institutions/${cik}`)
+    fetch(`/api/institutions/${cik}`, { cache: "no-store" })
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json() as Promise<HoldingsPayload>;
@@ -218,7 +218,7 @@ export default function InstitutionDetailPage() {
             onClick={() => {
               setLoading(true);
               setError(null);
-              fetch(`/api/institutions/${cik}`)
+              fetch(`/api/institutions/${cik}`, { cache: "no-store" })
                 .then((r) => {
                   if (!r.ok) throw new Error(`HTTP ${r.status}`);
                   return r.json() as Promise<HoldingsPayload>;
