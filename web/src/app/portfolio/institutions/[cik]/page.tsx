@@ -8,7 +8,8 @@ import type { HoldingsPayload, ProcessedHolding } from "@/lib/holdings-types";
 
 // ── Formatting ────────────────────────────────────────────────────────────────
 
-function fmtMM(mm: number): string {
+function fmtMM(mm: number | null | undefined): string {
+  if (mm == null) return "—";
   if (mm >= 1_000_000) return `$${(mm / 1_000_000).toFixed(2)}T`;
   if (mm >= 1_000)     return `$${(mm / 1_000).toFixed(1)}B`;
   return `$${mm}M`;
@@ -52,8 +53,9 @@ function ChangePill({ change, pct }: { change: ProcessedHolding["change"]; pct: 
 // ── Concentration bar (top 5 summary) ────────────────────────────────────────
 
 function ConcentrationBar({ holdings }: { holdings: ProcessedHolding[] }) {
-  const top5 = holdings.slice(0, 5);
-  const others = holdings.slice(5);
+  const safe = holdings ?? [];
+  const top5 = safe.slice(0, 5);
+  const others = safe.slice(5);
   const othersPct = others.reduce((s, h) => s + h.pctPortfolio, 0);
 
   const COLORS = [
@@ -71,7 +73,7 @@ function ConcentrationBar({ holdings }: { holdings: ProcessedHolding[] }) {
       <div className="flex h-3 rounded-full overflow-hidden gap-0.5 mb-4">
         {top5.map((h, i) => (
           <div
-            key={h.cusip}
+            key={h.cusip ?? i}
             className={`${COLORS[i]} transition-all`}
             style={{ width: `${h.pctPortfolio}%` }}
             title={`${h.name}: ${h.pctPortfolio.toFixed(1)}%`}
@@ -141,8 +143,8 @@ export default function InstitutionDetailPage() {
   }, [cik]);
 
   const filtered = useMemo(() => {
-    if (!data) return [];
-    let rows = changeFilter === "all" ? data.holdings : data.holdings.filter((h) => h.change === changeFilter);
+    const holdings = data?.holdings ?? [];
+    let rows = changeFilter === "all" ? holdings : holdings.filter((h) => h.change === changeFilter);
     if (sortKey === "change") {
       const ORDER: Record<string, number> = { new: 0, increased: 1, decreased: 2, unchanged: 3 };
       rows = [...rows].sort((a, b) => (ORDER[a.change] ?? 9) - (ORDER[b.change] ?? 9));
@@ -152,8 +154,8 @@ export default function InstitutionDetailPage() {
 
   // Change summary counts
   const changeCounts = useMemo(() => {
-    if (!data) return { new: 0, increased: 0, decreased: 0, unchanged: 0 };
-    return data.holdings.reduce(
+    const holdings = data?.holdings ?? [];
+    return holdings.reduce(
       (acc, h) => { acc[h.change]++; return acc; },
       { new: 0, increased: 0, decreased: 0, unchanged: 0 } as Record<string, number>
     );
@@ -213,7 +215,18 @@ export default function InstitutionDetailPage() {
           <p className="text-rose-400 text-sm font-medium mb-1">Could not load SEC EDGAR data</p>
           <p className="text-rose-400/60 text-xs">{error}</p>
           <button
-            onClick={() => { setLoading(true); setError(null); fetch(`/api/institutions/${cik}`).then(r=>r.json()).then(setData).catch((e:Error)=>setError(e.message)).finally(()=>setLoading(false)); }}
+            onClick={() => {
+              setLoading(true);
+              setError(null);
+              fetch(`/api/institutions/${cik}`)
+                .then((r) => {
+                  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                  return r.json() as Promise<HoldingsPayload>;
+                })
+                .then(setData)
+                .catch((e: Error) => setError(e.message))
+                .finally(() => setLoading(false));
+            }}
             className="mt-3 text-xs text-rose-400 border border-rose-400/30 rounded px-3 py-1 hover:bg-rose-400/10"
           >
             Retry
@@ -250,7 +263,7 @@ export default function InstitutionDetailPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
             {/* Top 5 bar */}
             <div className="md:col-span-1">
-              <ConcentrationBar holdings={data.holdings} />
+              <ConcentrationBar holdings={data.holdings ?? []} />
             </div>
 
             {/* QoQ change counts */}

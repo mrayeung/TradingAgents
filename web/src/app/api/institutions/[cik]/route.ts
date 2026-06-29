@@ -1,17 +1,44 @@
 /**
  * GET /api/institutions/[cik]
  *
- * Fetches the two most recent 13F-HR filings for the given SEC CIK from
- * EDGAR, parses the infotable XML holdings, computes quarter-over-quarter
- * changes, and returns a structured JSON payload.
+ * Serves 13F holdings data with a three-tier cache:
+ *   1. File cache  — web/.edgar-cache/{cik}.json, written by scripts/prefetch-edgar.mjs
+ *                    90-day TTL (13F data changes quarterly)
+ *   2. Next.js fetch cache — 1-hour revalidation (production builds only)
+ *   3. Live SEC EDGAR fetch — fallback when both caches are cold
  *
- * SEC rate limit: 10 req/s.  We stay well under with 150 ms inter-request
- * delays and Next.js fetch caching (1 h TTL).
+ * SEC rate limit: 10 req/s.  The prefetch script fetches one institution
+ * every 10 seconds; live fallback uses 150 ms inter-request delays.
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { readFileSync, existsSync } from "fs";
+import { join } from "path";
 import { INSTITUTIONS } from "@/lib/institutions";
 import type { ProcessedHolding, HoldingsPayload } from "@/lib/holdings-types";
+
+// Force dynamic so Next.js never serves a stale cached response for this route
+export const dynamic = "force-dynamic";
+
+// ── File cache ────────────────────────────────────────────────────────────────
+
+const CACHE_DIR = join(process.cwd(), ".edgar-cache");
+const CACHE_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
+
+function readFileCache(cik: string): HoldingsPayload | null {
+  try {
+    const id = String(parseInt(cik, 10)); // strip leading zeros
+    const path = join(CACHE_DIR, `${id}.json`);
+    if (!existsSync(path)) return null;
+    const raw = JSON.parse(readFileSync(path, "utf8")) as HoldingsPayload & { _cachedAt?: number };
+    const age = Date.now() - (raw._cachedAt ?? 0);
+    if (age > CACHE_MAX_AGE_MS) return null;
+    const { _cachedAt: _, ...payload } = raw as typeof raw & { _cachedAt: number };
+    return payload;
+  } catch {
+    return null;
+  }
+}
 
 export type { ProcessedHolding, HoldingsPayload };
 
@@ -41,8 +68,9 @@ async function secFetch(url: string): Promise<Response> {
       "User-Agent": USER_AGENT,
       Accept: "application/json, text/xml, text/html, */*",
     },
-    // Cache responses for 1 hour — 13F data only changes quarterly
-    next: { revalidate: 3600 },
+    // Skip Next.js data cache so we always get a fresh response.
+    // Persistence is handled by the file cache (prefetch-edgar.mjs).
+    cache: "no-store",
   });
 }
 
@@ -80,69 +108,83 @@ interface FilingMeta {
 }
 
 /**
- * Fetch the N most-recent 13F-HR filings for a CIK using the EDGAR
- * company search endpoint with type=13F-HR filter.
+ * Fetch the N most-recent 13F-HR filings for a CIK.
  *
- * This is more reliable than scanning filings.recent from the submissions
- * JSON, which only holds ~40 entries across ALL form types and can miss
- * recent 13F-HR filings for high-volume filers (BlackRock advisors, etc.).
+ * Primary:  SEC submissions JSON API (structured, reliable, no HTML parsing)
+ * Fallback: browse-edgar HTML scrape (catches filings not yet in submissions JSON)
  */
 async function getRecentFilings(cik: string, count: number): Promise<FilingMeta[]> {
   const cikInt = parseInt(cik, 10);
-
-  // The browse-edgar endpoint with type=13F-HR returns ONLY 13F-HR results,
-  // regardless of total filing volume for the entity.
-  const url =
-    `https://www.sec.gov/cgi-bin/browse-edgar` +
-    `?action=getcompany&CIK=${cikInt}&type=13F-HR` +
-    `&dateb=&owner=include&count=${count * 2 + 2}&search_text=`;
-
-  const res = await secFetch(url);
-  if (!res.ok) throw new Error(`SEC EDGAR browse HTTP ${res.status} for CIK ${cik}`);
-
-  const html = await res.text();
   const results: FilingMeta[] = [];
 
-  // Parse table rows — each row with a 13F-HR link looks like:
-  //   <td>13F-HR</td> ... href="/Archives/edgar/data/{cik}/{accNodashes}/..."
-  //   with a date string YYYY-MM-DD somewhere in the row
-  const rows = html.split(/<tr[\s>]/i);
-  for (const row of rows) {
-    if (results.length >= count) break;
-    if (!/13F-HR/i.test(row)) continue;
+  // ── Primary: submissions JSON ─────────────────────────────────────────────
+  // data.sec.gov/submissions/CIK{10-digit-padded}.json contains recent filings.
+  // `cik` is already zero-padded to 10 digits (e.g. "0001336528").
+  const subUrl = `https://data.sec.gov/submissions/CIK${cik}.json`;
+  console.log(`[13F] submissions JSON → ${subUrl}`);
+  try {
+    const subRes = await secFetch(subUrl);
+    console.log(`[13F] submissions status: ${subRes.status} (CIK ${cik})`);
+    if (subRes.ok) {
+      const data = await subRes.json();
+      const recent = data?.filings?.recent ?? {};
+      const forms  = recent.form            ?? [];
+      const dates  = recent.filingDate      ?? [];
+      const accs   = recent.accessionNumber ?? [];
+      console.log(`[13F] recent array length: ${forms.length}, entity: ${data?.name ?? "?"}`);
+      // Log first few form types to catch whitespace/variant surprises
+      console.log(`[13F] first 5 form types: ${forms.slice(0, 5).join(", ")}`);
 
-    const accMatch = row.match(/\/Archives\/edgar\/data\/\d+\/([\d]{18,})\//);
-    if (!accMatch) continue;
-
-    const dateMatch = row.match(/(\d{4}-\d{2}-\d{2})/);
-    if (!dateMatch) continue;
-
-    results.push({ date: dateMatch[1], accNodashes: accMatch[1] });
-  }
-
-  // Fallback: try submissions JSON if browse-edgar returned nothing
-  // (e.g. when the entity has no 13F-HR, this surfaces a clear empty result
-  //  rather than masking the real problem with an HTML parse failure)
-  if (results.length === 0) {
-    const subUrl = `https://data.sec.gov/submissions/CIK${cik}.json`;
-    try {
-      const subRes = await secFetch(subUrl);
-      if (subRes.ok) {
-        const data = await subRes.json();
-        const recent    = data?.filings?.recent ?? {};
-        const forms     = recent.form            ?? [];
-        const dates     = recent.filingDate      ?? [];
-        const accs      = recent.accessionNumber ?? [];
-        for (let i = 0; i < forms.length && results.length < count; i++) {
-          if (forms[i] === "13F-HR") {
-            results.push({
-              date: dates[i],
-              accNodashes: (accs[i] as string).replace(/-/g, ""),
-            });
-          }
+      for (let i = 0; i < forms.length && results.length < count; i++) {
+        // .trim() handles trailing spaces that occasionally appear in the API
+        if ((forms[i] as string).trim() === "13F-HR") {
+          results.push({
+            date: dates[i],
+            accNodashes: (accs[i] as string).replace(/-/g, ""),
+          });
         }
       }
-    } catch { /* ignore */ }
+      console.log(`[13F] 13F-HR filings found via submissions JSON: ${results.length}`);
+    }
+  } catch (e) {
+    console.error(`[13F] submissions JSON error for CIK ${cik}:`, e);
+  }
+
+  if (results.length >= count) return results;
+
+  // ── Fallback: browse-edgar HTML scrape ────────────────────────────────────
+  // Catches filings not yet indexed in submissions JSON (very recent).
+  console.log(`[13F] falling back to browse-edgar HTML scrape (CIK ${cik})`);
+  try {
+    const url =
+      `https://www.sec.gov/cgi-bin/browse-edgar` +
+      `?action=getcompany&CIK=${cikInt}&type=13F-HR` +
+      `&dateb=&owner=include&count=${count * 2 + 2}&search_text=`;
+
+    const res = await secFetch(url);
+    console.log(`[13F] browse-edgar status: ${res.status}`);
+    if (!res.ok) throw new Error(`browse-edgar HTTP ${res.status}`);
+
+    const html = await res.text();
+    const rows = html.split(/<tr[\s>]/i);
+    const seen = new Set(results.map((r) => r.accNodashes));
+
+    for (const row of rows) {
+      if (results.length >= count) break;
+      if (!/13F-HR/i.test(row)) continue;
+
+      const accMatch = row.match(/\/Archives\/edgar\/data\/\d+\/([\d]{18,})\//);
+      if (!accMatch || seen.has(accMatch[1])) continue;
+
+      const dateMatch = row.match(/(\d{4}-\d{2}-\d{2})/);
+      if (!dateMatch) continue;
+
+      results.push({ date: dateMatch[1], accNodashes: accMatch[1] });
+      seen.add(accMatch[1]);
+    }
+    console.log(`[13F] browse-edgar added ${results.length} total filings`);
+  } catch (e) {
+    console.error(`[13F] browse-edgar error for CIK ${cik}:`, e);
   }
 
   return results;
@@ -216,12 +258,26 @@ export async function GET(
     return NextResponse.json({ error: "Institution not found" }, { status: 404 });
   }
 
+  console.log(`[13F] GET /api/institutions/${cik} → entity: ${institution.name}, cik: ${institution.cik}`);
+
+  // ── Tier 1: file cache (written by prefetch-edgar.mjs) ──────────────────────
+  const cached = readFileCache(institution.cik);
+  if (cached) {
+    console.log(`[13F] file cache HIT for CIK ${institution.cik}`);
+    return NextResponse.json(cached, {
+      headers: { "X-Cache": "HIT", "X-Cache-Source": "file" },
+    });
+  }
+  console.log(`[13F] file cache MISS — hitting SEC EDGAR live`);
+
+  // ── Live SEC EDGAR ────────────────────────────────────────────────────────
   try {
     // Fetch the two most-recent 13F-HR filings
     const filings = await getRecentFilings(institution.cik, 2);
+    console.log(`[13F] getRecentFilings returned ${filings.length} result(s)`);
     if (filings.length === 0) {
       return NextResponse.json(
-        { error: "No 13F-HR filings found for this institution" },
+        { error: "No 13F-HR filings found for this institution — check terminal logs" },
         { status: 404 }
       );
     }

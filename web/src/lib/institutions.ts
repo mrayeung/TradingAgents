@@ -4,7 +4,7 @@
  * (the fund/manager, NOT the company whose stock they hold).
  */
 
-export type InstitutionCategory = "star" | "hedge_fund" | "tech_growth";
+export type InstitutionCategory = "star" | "hedge_fund" | "tech_growth" | "asset_manager";
 
 export interface Institution {
   id: string;             // URL-safe slug (numeric CIK without leading zeros)
@@ -174,12 +174,126 @@ export const INSTITUTIONS: Institution[] = [
     description: "Technology-focused long/short equity",
   },
   {
-    id: "1109448",
+    id: "1103804",
     name: "Viking Global Investors",
     manager: "Andreas Halvorsen",
-    cik: "0001109448",
+    cik: "0001103804",
     category: "tech_growth",
     description: "Growth-oriented long/short equity",
+  },
+
+  // ── Large Asset Managers ────────────────────────────────────────────────────
+  {
+    id: "315066",
+    name: "Fidelity (FMR LLC)",
+    manager: "Abby Johnson",
+    cik: "0000315066",
+    category: "asset_manager",
+    description: "One of the largest US asset managers; active and passive strategies",
+  },
+  {
+    id: "80255",
+    name: "T. Rowe Price",
+    manager: "Rob Sharps",
+    cik: "0000080255",
+    category: "asset_manager",
+    description: "Active growth-oriented manager; $1.9T AUM",
+  },
+  {
+    id: "1214717",
+    name: "Geode Capital Management",
+    manager: "Robert Minicus",
+    cik: "0001214717",
+    category: "asset_manager",
+    description: "Fidelity's indexing arm; $1.9T passive AUM",
+  },
+  {
+    id: "902219",
+    name: "Wellington Management",
+    manager: "Jean Hynes",
+    cik: "0000902219",
+    category: "asset_manager",
+    description: "Private partnership; $1.3T AUM across equities and fixed income",
+  },
+  {
+    id: "354204",
+    name: "Dimensional Fund Advisors",
+    manager: "Dave Butler",
+    cik: "0000354204",
+    category: "asset_manager",
+    description: "Factor-based systematic strategies; $835B AUM",
+  },
+  {
+    id: "914208",
+    name: "Invesco",
+    manager: "Andrew Schlossberg",
+    cik: "0000914208",
+    category: "asset_manager",
+    description: "Active and passive; $2.2T AUM including PowerShares ETFs",
+  },
+  {
+    id: "38777",
+    name: "Franklin Templeton",
+    manager: "Jenny Johnson",
+    cik: "0000038777",
+    category: "asset_manager",
+    description: "Global active manager; $467B+ AUM across equities and fixed income",
+  },
+  {
+    id: "1137774",
+    name: "PGIM (Prudential)",
+    manager: "David Hunt",
+    cik: "0001137774",
+    category: "asset_manager",
+    description: "Prudential's asset management arm; $1.0T AUM",
+  },
+  {
+    id: "912938",
+    name: "MFS Investment Management",
+    manager: "Mike Roberge",
+    cik: "0000912938",
+    category: "asset_manager",
+    description: "Oldest US mutual fund company; $473B active equity and fixed income",
+  },
+  {
+    id: "1890906",
+    name: "Allspring Global Investments",
+    manager: "Joseph Sullivan",
+    cik: "0001890906",
+    category: "asset_manager",
+    description: "Spun out of Wells Fargo Asset Management in 2021; $457B AUM",
+  },
+  {
+    id: "861177",
+    name: "UBS Asset Management Americas",
+    manager: "Suni Harford",
+    cik: "0000861177",
+    category: "asset_manager",
+    description: "US arm of UBS's global asset management franchise",
+  },
+  {
+    id: "1055964",
+    name: "Nomura Asset Management",
+    manager: "Junko Nakagawa",
+    cik: "0001055964",
+    category: "asset_manager",
+    description: "Japan's largest asset manager; US equity and fixed income strategies",
+  },
+  {
+    id: "1529735",
+    name: "MetLife Investment Management",
+    manager: "Steven Goulart",
+    cik: "0001529735",
+    category: "asset_manager",
+    description: "Insurance-linked asset manager; $508B AUM",
+  },
+  {
+    id: "1109448",
+    name: "AllianceBernstein",
+    manager: "Seth Bernstein",
+    cik: "0001109448",
+    category: "asset_manager",
+    description: "Global active manager; $709B AUM in equities and fixed income",
   },
 ];
 
@@ -204,6 +318,11 @@ export const CATEGORY_META: Record<
     textColor: "text-violet-400",
     badgeCls: "bg-violet-400/10 border border-violet-400/25 text-violet-400",
   },
+  asset_manager: {
+    label: "Asset Manager",
+    textColor: "text-teal-400",
+    badgeCls: "bg-teal-400/10 border border-teal-400/25 text-teal-400",
+  },
 };
 
-export const ALL_CATEGORIES: InstitutionCategory[] = ["star", "hedge_fund", "tech_growth"];
+export const ALL_CATEGORIES: InstitutionCategory[] = ["star", "hedge_fund", "tech_growth", "asset_manager"];

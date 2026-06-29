@@ -46,24 +46,32 @@ interface TileState {
   data: HoldingsPayload | null;
 }
 
-function useTileData(id: string): TileState {
-  const [state, setState] = useState<TileState>({ loading: true, error: false, data: null });
+// In-memory cache so navigating back doesn't re-hit SEC EDGAR
+const _cache = new Map<string, HoldingsPayload>();
+
+function useTileData(id: string, delayMs = 0): TileState {
+  const [state, setState] = useState<TileState>({
+    loading: !_cache.has(id),
+    error: false,
+    data: _cache.get(id) ?? null,
+  });
 
   useEffect(() => {
+    if (_cache.has(id)) return; // already cached — nothing to fetch
     let cancelled = false;
-    fetch(`/api/institutions/${id}`)
-      .then((r) => {
+    const timer = setTimeout(async () => {
+      try {
+        const r = await fetch(`/api/institutions/${id}`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json() as Promise<HoldingsPayload>;
-      })
-      .then((data) => {
+        const data = await r.json() as HoldingsPayload;
+        _cache.set(id, data);
         if (!cancelled) setState({ loading: false, error: false, data });
-      })
-      .catch(() => {
+      } catch {
         if (!cancelled) setState({ loading: false, error: true, data: null });
-      });
-    return () => { cancelled = true; };
-  }, [id]);
+      }
+    }, delayMs);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [id, delayMs]);
 
   return state;
 }
@@ -85,8 +93,8 @@ function TileSkeleton() {
 
 // ── Institution tile ──────────────────────────────────────────────────────────
 
-function InstitutionTile({ institution }: { institution: Institution }) {
-  const { loading, error, data } = useTileData(institution.id);
+function InstitutionTile({ institution, index }: { institution: Institution; index: number }) {
+  const { loading, error, data } = useTileData(institution.id, index * 300);
   const meta = CATEGORY_META[institution.category];
   const top5 = data?.holdings.slice(0, 5) ?? [];
 
@@ -162,10 +170,11 @@ function InstitutionTile({ institution }: { institution: Institution }) {
 // ── Category filter tabs ──────────────────────────────────────────────────────
 
 const TABS: { id: "all" | InstitutionCategory; label: string }[] = [
-  { id: "all",        label: "All" },
-  { id: "star",       label: "Star Investors" },
-  { id: "hedge_fund", label: "Hedge Funds" },
-  { id: "tech_growth",label: "Tech / Growth" },
+  { id: "all",           label: "All" },
+  { id: "star",          label: "Star Investors" },
+  { id: "hedge_fund",    label: "Hedge Funds" },
+  { id: "tech_growth",   label: "Tech / Growth" },
+  { id: "asset_manager", label: "Asset Managers" },
 ];
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -212,8 +221,8 @@ export default function InstitutionsPage() {
 
       {/* Tile grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {visible.map((inst) => (
-          <InstitutionTile key={inst.id} institution={inst} />
+        {visible.map((inst, i) => (
+          <InstitutionTile key={inst.id} institution={inst} index={i} />
         ))}
       </div>
 

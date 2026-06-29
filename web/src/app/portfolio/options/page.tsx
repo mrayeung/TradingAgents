@@ -46,10 +46,10 @@ interface UnusualEntry {
 interface ExpiryData {
   expiry: string;
   dte: number;
-  atmIV: number;
+  atmIV: number | null;
   atmIVPct: string;
-  expectedMove: number;
-  expectedMovePct: number;
+  expectedMove: number | null;
+  expectedMovePct: number | null;
   pcrVolume: number | null;
   pcrOI: number | null;
   callVolume: number;
@@ -65,19 +65,24 @@ interface ExpiryData {
 
 interface OptionsData {
   ticker: string;
-  currentPrice: number;
-  rv30d: number;
+  currentPrice: number | null;
+  rv30d: number | null;
   rv30dPct: string;
-  ivRvRatio: number;
+  ivRvRatio: number | null;
   ivRegime: "high" | "normal" | "low";
   expirations: ExpiryData[];
 }
 
 // ── Formatting helpers ────────────────────────────────────────────────────────
 
-function fmtPrice(n: number) { return `$${n.toFixed(2)}`; }
-function fmtPct(n: number) { return `${(n * 100).toFixed(1)}%`; }
-function fmtVol(n: number) {
+function fmtPrice(n: number | null | undefined) {
+  return n == null ? "—" : `$${n.toFixed(2)}`;
+}
+function fmtPct(n: number | null | undefined) {
+  return n == null ? "—" : `${(n * 100).toFixed(1)}%`;
+}
+function fmtVol(n: number | null | undefined) {
+  if (n == null) return "—";
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
   return n.toString();
@@ -171,15 +176,15 @@ function TradeIdeaCard({ idea }: { idea: TradeIdea }) {
 
 // ── Expected move card ────────────────────────────────────────────────────────
 
-function ExpectedMoveCard({ exp, price }: { exp: ExpiryData; price: number }) {
+function ExpectedMoveCard({ exp, price }: { exp: ExpiryData; price: number | null }) {
   if (exp.error) return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 text-xs text-slate-600 italic">
       {exp.expiry} — {exp.error}
     </div>
   );
 
-  const upper = price + exp.expectedMove;
-  const lower = price - exp.expectedMove;
+  const upper = price != null && exp.expectedMove != null ? price + exp.expectedMove : null;
+  const lower = price != null && exp.expectedMove != null ? price - exp.expectedMove : null;
 
   // P/C sentiment
   const pcr = exp.pcrVolume;
@@ -249,7 +254,7 @@ function ExpectedMoveCard({ exp, price }: { exp: ExpiryData; price: number }) {
 
 // ── Options chain mini-table ──────────────────────────────────────────────────
 
-function ChainTable({ exp, price }: { exp: ExpiryData; price: number }) {
+function ChainTable({ exp, price }: { exp: ExpiryData; price: number | null }) {
   const [open, setOpen] = useState(false);
   if (exp.error) return null;
   return (
@@ -285,7 +290,7 @@ function ChainTable({ exp, price }: { exp: ExpiryData; price: number }) {
             <tbody className="divide-y divide-slate-800/50">
               {exp.calls.map((call, i) => {
                 const put  = exp.puts.find((p) => p.strike === call.strike);
-                const isAtm = Math.abs(call.strike - price) < 2.6;
+                const isAtm = price != null && Math.abs(call.strike - price) < 2.6;
                 return (
                   <tr key={i} className={`${isAtm ? "bg-sky-500/5" : "hover:bg-slate-800/30"} transition-colors`}>
                     <td className="px-3 py-2 text-emerald-400">{fmtPrice(call.bid)}</td>
@@ -346,7 +351,7 @@ function UnusualActivity({ entries }: { entries: UnusualEntry[] }) {
               <td className="px-3 py-2 text-right font-semibold text-slate-200">{fmtVol(e.volume)}</td>
               <td className="px-3 py-2 text-right text-slate-500">{fmtVol(e.openInterest)}</td>
               <td className={`px-3 py-2 text-right font-semibold ${e.uaRatio >= 5 ? "text-amber-400" : "text-slate-300"}`}>
-                {e.uaRatio.toFixed(1)}×
+                {e.uaRatio?.toFixed(1) ?? "—"}×
               </td>
               <td className="px-3 py-2 text-right text-slate-300">{fmtPrice(e.mid)}</td>
               <td className="px-3 py-2 text-right text-slate-400">{fmtPct(e.iv)}</td>
@@ -473,7 +478,7 @@ export default function OptionsPage() {
             )}
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-3">
               <p className="text-xs text-slate-500 mb-1">IV / RV Ratio</p>
-              <p className="text-xl font-bold text-slate-100">{data.ivRvRatio.toFixed(2)}×</p>
+              <p className="text-xl font-bold text-slate-100">{data.ivRvRatio?.toFixed(2) ?? "—"}×</p>
             </div>
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex items-center gap-2">
               <div>
@@ -504,7 +509,7 @@ export default function OptionsPage() {
                 </h2>
                 <IVRegimeBadge regime={data.ivRegime} />
                 <span className="text-xs text-slate-600">
-                  IV {data.ivRvRatio.toFixed(1)}× 30d realized vol →
+                  IV {data.ivRvRatio?.toFixed(1) ?? "—"}× 30d realized vol →
                   {data.ivRegime === "high" ? " premium selling favored"
                     : data.ivRegime === "low" ? " premium buying favored"
                     : " balanced strategies"}
