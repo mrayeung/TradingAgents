@@ -298,6 +298,16 @@ export async function GET(
     const currentRaw = parseInfotable(currentXml);
     const totalValue = currentRaw.reduce((s, h) => s + h.value, 0);
 
+    // Auto-detect value unit.
+    // SEC spec says <value> is in thousands of dollars, but many filers report
+    // in full dollars (e.g. <value>2415946008</value> = $2.4B).
+    // Heuristic: if the largest position exceeds 500,000,000 raw units, the values
+    // are in dollars (500M dollars is a plausible position; 500M thousands = $500T
+    // which is impossible). Use 1,000,000 divisor for dollars, 1,000 for thousands.
+    const maxRawValue = currentRaw.reduce((m, h) => Math.max(m, h.value), 0);
+    const valueDivisor = maxRawValue > 500_000_000 ? 1_000_000 : 1_000;
+    console.log(`[13F] value unit: ${valueDivisor === 1_000_000 ? "dollars" : "thousands"} (max raw=${maxRawValue})`);
+
     // Fetch previous infotable for QoQ comparison
     let prevByCusip = new Map<string, RawHolding>();
     let prevFilingDate: string | null = null;
@@ -345,7 +355,7 @@ export async function GET(
         name: h.name,
         cusip: h.cusip,
         value: h.value,
-        valueMM: Math.round(h.value / 1000),
+        valueMM: Math.round(h.value / valueDivisor),
         shares: h.shares,
         pctPortfolio: totalValue > 0 ? (h.value / totalValue) * 100 : 0,
         change,
@@ -356,7 +366,7 @@ export async function GET(
     const payload: HoldingsPayload = {
       filingDate: filings[0].date,
       quarter: dateToQuarter(filings[0].date),
-      totalValueMM: Math.round(totalValue / 1000),
+      totalValueMM: Math.round(totalValue / valueDivisor),
       positionCount: holdings.length,
       prevFilingDate,
       prevQuarter,
