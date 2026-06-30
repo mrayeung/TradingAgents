@@ -7,13 +7,57 @@ import {
 import { api, PortfolioConstructResult } from "@/lib/api";
 import { usePortfolioStore, savedLabel } from "@/lib/portfolio-store";
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Safe formatting helpers ─────────────────────────────────────────────────
 
-function pct(v: number) {
+/** Format a fraction (0–1) as a percentage string; returns "—" for null/NaN. */
+function fmtPct(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return "—";
   return `${(v * 100).toFixed(1)}%`;
 }
 
-function StatCard({ label, value, color }: { label: string; value: string; color?: string }) {
+/** Format a decimal to `dec` places; returns "—" for null/NaN. */
+function fmtFixed(v: number | null | undefined, dec = 2): string {
+  if (v == null || !Number.isFinite(v)) return "—";
+  return v.toFixed(dec);
+}
+
+/** Colour class for a return value (null → neutral). */
+function returnColor(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return "text-slate-400";
+  return v > 0 ? "text-emerald-400" : "text-red-400";
+}
+
+/** Colour class for Sharpe (null → neutral). */
+function sharpeColor(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return "text-slate-400";
+  return v > 1 ? "text-emerald-400" : v > 0.5 ? "text-amber-400" : "text-red-400";
+}
+
+// ─── Ticker validation ────────────────────────────────────────────────────────
+
+const TICKER_RE = /^[A-Z0-9][A-Z0-9.\-]{0,9}$/;
+
+interface TickerIssue {
+  ticker: string;
+  kind: "warn" | "error";
+  reason: string;
+}
+
+function validateTickers(tickers: string[]): TickerIssue[] {
+  return tickers.flatMap<TickerIssue>(t => {
+    if (t.length === 0) return [];
+    if (/^\d+$/.test(t))    return [{ ticker: t, kind: "error", reason: "looks like a number, not a ticker" }];
+    if (t.length === 1)      return [{ ticker: t, kind: "warn",  reason: "single-char — double-check" }];
+    if (!TICKER_RE.test(t)) return [{ ticker: t, kind: "warn",  reason: "unusual characters" }];
+    return [];
+  });
+}
+
+// ─── Sub-components ──────────────────────────────────────────────────────────
+
+function StatCard({
+  label, value, color,
+}: { label: string; value: string; color?: string }) {
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
       <div className="text-xs text-slate-500 mb-1">{label}</div>
@@ -23,10 +67,10 @@ function StatCard({ label, value, color }: { label: string; value: string; color
 }
 
 const WEIGHT_COLORS = [
-  "#0ea5e9", "#38bdf8", "#7dd3fc",
-  "#34d399", "#6ee7b7", "#a7f3d0",
-  "#fbbf24", "#fcd34d", "#fde68a",
-  "#f87171", "#fca5a5", "#fecaca",
+  "#0ea5e9","#38bdf8","#7dd3fc",
+  "#34d399","#6ee7b7","#a7f3d0",
+  "#fbbf24","#fcd34d","#fde68a",
+  "#f87171","#fca5a5","#fecaca",
 ];
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -34,21 +78,18 @@ const WEIGHT_COLORS = [
 export default function ConstructPage() {
   const { constructInputs, patchConstructInputs, savedPortfolio, savePortfolio } = usePortfolioStore();
 
-  // Local form state — initialised from the shared store so navigating back
-  // restores exactly what you had.
-  const [tickerInput, setTickerInput]     = useState(constructInputs.tickerInput);
-  const [riskAversion, setRiskAversion]   = useState(constructInputs.riskAversion);
-  const [maxPosition, setMaxPosition]     = useState(constructInputs.maxPosition);
-  const [minPosition, setMinPosition]     = useState(constructInputs.minPosition);
-  const [lookbackDays, setLookbackDays]   = useState(constructInputs.lookbackDays);
+  const [tickerInput,  setTickerInput]  = useState(constructInputs.tickerInput);
+  const [riskAversion, setRiskAversion] = useState(constructInputs.riskAversion);
+  const [maxPosition,  setMaxPosition]  = useState(constructInputs.maxPosition);
+  const [minPosition,  setMinPosition]  = useState(constructInputs.minPosition);
+  const [lookbackDays, setLookbackDays] = useState(constructInputs.lookbackDays);
 
-  const [result, setResult]   = useState<PortfolioConstructResult | null>(null);
+  const [result,  setResult]  = useState<PortfolioConstructResult | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState<string | null>(null);
-  const [saved, setSaved]     = useState(false);   // flash state for save confirmation
+  const [error,   setError]   = useState<string | null>(null);
+  const [saved,   setSaved]   = useState(false);
 
-  // Keep the store in sync whenever the user changes a field so that
-  // navigating away and back restores the current form state.
+  // Keep store in sync so navigating away and back restores state
   useEffect(() => {
     patchConstructInputs({ tickerInput, riskAversion, maxPosition, minPosition, lookbackDays });
   }, [tickerInput, riskAversion, maxPosition, minPosition, lookbackDays]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -58,11 +99,22 @@ export default function ConstructPage() {
     .map(t => t.trim().toUpperCase())
     .filter(Boolean);
 
+  const tickerIssues = validateTickers(parsedTickers);
+  const hasErrors    = tickerIssues.some(i => i.kind === "error");
+
+  // Constraint guard: min must be < max
+  const constraintError = minPosition >= maxPosition
+    ? `Min position (${fmtPct(minPosition)}) must be less than max position (${fmtPct(maxPosition)})`
+    : null;
+
+  const canSubmit = !loading && parsedTickers.length > 0 && !hasErrors && !constraintError;
+
   const handleConstruct = async () => {
-    if (parsedTickers.length === 0) return;
+    if (!canSubmit) return;
     setLoading(true);
     setError(null);
     setSaved(false);
+    setResult(null);
     try {
       const data = await api.construct({
         tickers: parsedTickers,
@@ -71,9 +123,23 @@ export default function ConstructPage() {
         min_position: minPosition,
         lookback_days: lookbackDays,
       });
+
+      // Guard: server returned a result but weights map is empty
+      if (Object.keys(data.weights).length === 0) {
+        setError(
+          "No valid price data was found for the entered tickers. " +
+          "Check that you used valid US equity symbols (e.g. AAPL, MSFT, NVDA)."
+        );
+        return;
+      }
+
       setResult(data);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e));
+      // Unwrap the error message from the API or network layer
+      const msg = e instanceof Error ? e.message : String(e);
+      // POST … → 422: {"detail": "…"} — extract the readable part after the status code
+      const match = msg.match(/\d{3}: ([\s\S]+)/);
+      setError(match ? match[1].replace(/^[{"]*(detail[": ]+)?/, "").replace(/["}]*$/, "").trim() : msg);
     } finally {
       setLoading(false);
     }
@@ -82,12 +148,12 @@ export default function ConstructPage() {
   const handleSave = () => {
     if (!result) return;
     savePortfolio({
-      tickers: parsedTickers,
+      tickers: Object.keys(result.weights),
       weights: result.weights,
       savedAt: new Date().toISOString(),
-      expectedReturn: result.expected_return,
-      volatility: result.volatility,
-      sharpe: result.sharpe,
+      expectedReturn: result.expected_return ?? 0,
+      volatility: result.volatility ?? 0,
+      sharpe: result.sharpe ?? 0,
     });
     setSaved(true);
   };
@@ -108,7 +174,6 @@ export default function ConstructPage() {
             Black-Litterman posterior returns → constrained mean-variance optimisation
           </p>
         </div>
-        {/* Currently-saved portfolio pill */}
         {savedPortfolio && (
           <div className="text-right text-xs text-slate-400 mt-1">
             <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-900/30 border border-emerald-800/50 rounded-full text-emerald-400">
@@ -120,23 +185,64 @@ export default function ConstructPage() {
 
       {/* Controls */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 mb-6 space-y-5">
+
         {/* Ticker input */}
         <div>
           <label className="block text-xs text-slate-400 mb-1.5">
-            Tickers (comma or space separated)
+            Tickers <span className="text-slate-600">(comma or space separated)</span>
           </label>
           <input
             value={tickerInput}
-            onChange={e => setTickerInput(e.target.value)}
+            onChange={e => { setTickerInput(e.target.value); setError(null); }}
+            onKeyDown={e => e.key === "Enter" && handleConstruct()}
             placeholder="AAPL, MSFT, GOOGL …"
-            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-sky-500"
+            className={`w-full bg-slate-800 border rounded-lg px-3 py-2.5 text-sm text-slate-100 focus:outline-none transition-colors ${
+              hasErrors
+                ? "border-red-600 focus:border-red-500"
+                : "border-slate-700 focus:border-sky-500"
+            }`}
           />
+
+          {/* Token chips */}
           {parsedTickers.length > 0 && (
             <div className="flex gap-1.5 mt-2 flex-wrap">
-              {parsedTickers.map(t => (
-                <span key={t} className="px-2 py-0.5 bg-slate-700 text-slate-300 rounded text-xs">{t}</span>
+              {parsedTickers.map(t => {
+                const issue = tickerIssues.find(i => i.ticker === t);
+                const chipCls = !issue
+                  ? "bg-slate-700 text-slate-300"
+                  : issue.kind === "error"
+                    ? "bg-red-900/50 text-red-300 border border-red-700/50"
+                    : "bg-amber-900/50 text-amber-300 border border-amber-700/50";
+                return (
+                  <span key={t} className={`px-2 py-0.5 rounded text-xs ${chipCls}`} title={issue?.reason}>
+                    {t}
+                    {issue && (
+                      <span className="ml-1 opacity-70">
+                        {issue.kind === "error" ? "✕" : "⚠"}
+                      </span>
+                    )}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Per-ticker validation messages */}
+          {tickerIssues.length > 0 && (
+            <div className="mt-1.5 space-y-0.5">
+              {tickerIssues.map(i => (
+                <p key={i.ticker} className={`text-xs ${i.kind === "error" ? "text-red-400" : "text-amber-400"}`}>
+                  {i.kind === "error" ? "✕" : "⚠"} <strong>{i.ticker}</strong>: {i.reason}
+                </p>
               ))}
             </div>
+          )}
+
+          {/* Single-ticker hint */}
+          {parsedTickers.length === 1 && tickerIssues.length === 0 && (
+            <p className="text-xs text-slate-500 mt-1">
+              Tip: add 2+ tickers for a meaningful portfolio optimisation.
+            </p>
           )}
         </div>
 
@@ -177,7 +283,7 @@ export default function ConstructPage() {
           <div>
             <label className="flex justify-between text-xs text-slate-400 mb-1.5">
               <span>Max Position</span>
-              <span className="text-slate-300">{pct(maxPosition)}</span>
+              <span className="text-slate-300">{fmtPct(maxPosition)}</span>
             </label>
             <input
               type="range" min={0.05} max={0.60} step={0.05}
@@ -190,54 +296,75 @@ export default function ConstructPage() {
           <div>
             <label className="flex justify-between text-xs text-slate-400 mb-1.5">
               <span>Min Position</span>
-              <span className="text-slate-300">{pct(minPosition)}</span>
+              <span className={`${constraintError ? "text-red-400" : "text-slate-300"}`}>
+                {fmtPct(minPosition)}
+              </span>
             </label>
             <input
               type="range" min={0.01} max={0.10} step={0.01}
               value={minPosition}
               onChange={e => setMinPosition(Number(e.target.value))}
-              className="w-full accent-sky-500"
+              className={`w-full ${constraintError ? "accent-red-500" : "accent-sky-500"}`}
             />
+            {constraintError && (
+              <p className="text-xs text-red-400 mt-1">{constraintError}</p>
+            )}
           </div>
         </div>
 
         {/* Run button */}
         <button
           onClick={handleConstruct}
-          disabled={loading || parsedTickers.length === 0}
-          className="px-6 py-2.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white rounded-lg font-medium text-sm transition-colors"
+          disabled={!canSubmit}
+          title={
+            hasErrors ? "Fix invalid tickers first" :
+            constraintError ? constraintError :
+            parsedTickers.length === 0 ? "Enter at least one ticker" : undefined
+          }
+          className="px-6 py-2.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg font-medium text-sm transition-colors"
         >
           {loading ? "Optimising…" : "⚖️ Construct Portfolio"}
         </button>
       </div>
 
-      {/* Error */}
+      {/* Error banner */}
       {error && (
-        <div className="mb-4 p-4 bg-red-900/30 border border-red-700 rounded-lg text-red-300 text-sm">
-          {error}
+        <div className="mb-4 p-4 bg-red-900/30 border border-red-700 rounded-lg text-sm space-y-1">
+          <p className="font-semibold text-red-300">Could not build portfolio</p>
+          <p className="text-red-400/90">{error}</p>
+        </div>
+      )}
+
+      {/* Partial-ticker warning */}
+      {result?.invalid_tickers && result.invalid_tickers.length > 0 && (
+        <div className="mb-4 p-3 bg-amber-900/20 border border-amber-700/50 rounded-lg text-xs text-amber-300">
+          ⚠ No price data for <strong>{result.invalid_tickers.join(", ")}</strong> — excluded from optimisation.
+          The result below uses only the valid tickers.
         </div>
       )}
 
       {/* Results */}
       {result && (
         <>
-          {/* Stat cards + Save button */}
+          {/* Stat cards + Save */}
           <div className="flex items-start gap-4 mb-6">
             <div className="grid grid-cols-3 gap-4 flex-1">
               <StatCard
                 label="Expected Return (ann.)"
-                value={pct(result.expected_return)}
-                color={result.expected_return > 0 ? "text-emerald-400" : "text-red-400"}
+                value={fmtPct(result.expected_return)}
+                color={returnColor(result.expected_return)}
               />
-              <StatCard label="Portfolio Volatility" value={pct(result.volatility)} />
+              <StatCard
+                label="Portfolio Volatility"
+                value={fmtPct(result.volatility)}
+              />
               <StatCard
                 label="Sharpe Ratio"
-                value={result.sharpe.toFixed(2)}
-                color={result.sharpe > 1 ? "text-emerald-400" : result.sharpe > 0.5 ? "text-amber-400" : "text-red-400"}
+                value={fmtFixed(result.sharpe)}
+                color={sharpeColor(result.sharpe)}
               />
             </div>
 
-            {/* Save button */}
             <div className="flex flex-col items-end gap-2 mt-1 shrink-0">
               <button
                 onClick={handleSave}
@@ -261,14 +388,19 @@ export default function ConstructPage() {
             {/* Weight bar chart */}
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
               <h2 className="text-sm font-semibold text-slate-300 mb-4">Optimal Weights</h2>
-              <ResponsiveContainer width="100%" height={240}>
+              <ResponsiveContainer width="100%" height={Math.max(180, barData.length * 36)}>
                 <BarChart data={barData} layout="vertical">
-                  <XAxis type="number" tickFormatter={v => `${(v * 100).toFixed(0)}%`}
-                    tick={{ fill: "#94a3b8", fontSize: 11 }} />
-                  <YAxis type="category" dataKey="ticker" width={60}
-                    tick={{ fill: "#cbd5e1", fontSize: 12 }} />
+                  <XAxis
+                    type="number"
+                    tickFormatter={v => `${(v * 100).toFixed(0)}%`}
+                    tick={{ fill: "#94a3b8", fontSize: 11 }}
+                  />
+                  <YAxis
+                    type="category" dataKey="ticker" width={60}
+                    tick={{ fill: "#cbd5e1", fontSize: 12 }}
+                  />
                   <Tooltip
-                    formatter={(v: number) => pct(v)}
+                    formatter={(v: number) => fmtPct(v)}
                     contentStyle={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8 }}
                   />
                   <Bar dataKey="weight" radius={[0, 4, 4, 0]}>
@@ -295,15 +427,15 @@ export default function ConstructPage() {
                   {Object.entries(result.weights)
                     .sort(([, a], [, b]) => b - a)
                     .map(([ticker, weight]) => {
-                      const blRet = result.bl_returns[ticker] ?? 0;
+                      const blRet = result.bl_returns?.[ticker] ?? null;
                       return (
                         <tr key={ticker} className="text-slate-300">
                           <td className="py-2 font-bold text-slate-100">{ticker}</td>
-                          <td className={`py-2 text-right font-mono text-xs ${blRet > 0 ? "text-emerald-400" : "text-red-400"}`}>
-                            {blRet > 0 ? "+" : ""}{pct(blRet)}
+                          <td className={`py-2 text-right font-mono text-xs ${returnColor(blRet)}`}>
+                            {blRet != null && blRet > 0 ? "+" : ""}{fmtPct(blRet)}
                           </td>
                           <td className="py-2 text-right font-mono text-xs text-sky-400">
-                            {pct(weight)}
+                            {fmtPct(weight)}
                           </td>
                         </tr>
                       );

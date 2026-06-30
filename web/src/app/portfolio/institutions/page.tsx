@@ -29,11 +29,15 @@ function ChangeBadge({ change, pct }: { change: ProcessedHolding["change"]; pct:
   if (change === "new") {
     return <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-400/10 text-emerald-400 border border-emerald-400/20">NEW</span>;
   }
+  // Values beyond ±999% are almost certainly a share-unit data artefact;
+  // show just the direction arrow without a misleading number.
+  const absPct = pct != null ? Math.abs(pct) : null;
+  const pctLabel = absPct == null ? "" : absPct > 999 ? " >999%" : ` ${absPct.toFixed(0)}%`;
   if (change === "increased") {
-    return <span className="text-xs text-emerald-400">↑{pct != null ? ` ${Math.abs(pct).toFixed(0)}%` : ""}</span>;
+    return <span className="text-xs text-emerald-400">↑{pctLabel}</span>;
   }
   if (change === "decreased") {
-    return <span className="text-xs text-rose-400">↓{pct != null ? ` ${Math.abs(pct).toFixed(0)}%` : ""}</span>;
+    return <span className="text-xs text-rose-400">↓{pctLabel}</span>;
   }
   return null;
 }
@@ -46,25 +50,68 @@ interface TileState {
   data: HoldingsPayload | null;
 }
 
-// In-memory cache so navigating back doesn't re-hit SEC EDGAR
-const _cache = new Map<string, HoldingsPayload>();
+// ── Dual-layer cache: localStorage (cross-session) + in-memory (tab) ──────────
+// 13F data is quarterly — 90-day TTL is safe.  localStorage survives refreshes;
+// the in-memory Map avoids redundant JSON.parse on repeated in-tab navigation.
+
+const CACHE_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
+const LS_PREFIX    = "edgar_13f_";
+
+interface LsEntry { data: HoldingsPayload; cachedAt: number }
+
+function lsRead(id: string): HoldingsPayload | null {
+  try {
+    const raw = localStorage.getItem(`${LS_PREFIX}${id}`);
+    if (!raw) return null;
+    const entry = JSON.parse(raw) as LsEntry;
+    if (Date.now() - entry.cachedAt > CACHE_TTL_MS) {
+      localStorage.removeItem(`${LS_PREFIX}${id}`);
+      return null;
+    }
+    return entry.data;
+  } catch { return null; }
+}
+
+function lsWrite(id: string, data: HoldingsPayload): void {
+  try {
+    localStorage.setItem(`${LS_PREFIX}${id}`, JSON.stringify({ data, cachedAt: Date.now() }));
+  } catch { /* storage quota exceeded — ignore */ }
+}
+
+// In-memory layer (avoids JSON.parse on repeated in-tab navigation)
+const _mem = new Map<string, HoldingsPayload>();
 
 function useTileData(id: string, delayMs = 0): TileState {
+  // Always start loading=true so SSR and client initial render match,
+  // preventing the React hydration mismatch error.
   const [state, setState] = useState<TileState>({
-    loading: !_cache.has(id),
+    loading: true,
     error: false,
-    data: _cache.get(id) ?? null,
+    data: null,
   });
 
   useEffect(() => {
-    if (_cache.has(id)) return; // already cached — nothing to fetch
+    // 1. In-memory hit (same tab, already fetched)
+    if (_mem.has(id)) {
+      setState({ loading: false, error: false, data: _mem.get(id)! });
+      return;
+    }
+    // 2. localStorage hit (persisted from a previous session)
+    const stored = lsRead(id);
+    if (stored) {
+      _mem.set(id, stored);
+      setState({ loading: false, error: false, data: stored });
+      return;
+    }
+    // 3. Fetch from EDGAR with optional stagger delay
     let cancelled = false;
     const timer = setTimeout(async () => {
       try {
         const r = await fetch(`/api/institutions/${id}`, { cache: "no-store" });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const data = await r.json() as HoldingsPayload;
-        _cache.set(id, data);
+        _mem.set(id, data);
+        lsWrite(id, data);
         if (!cancelled) setState({ loading: false, error: false, data });
       } catch {
         if (!cancelled) setState({ loading: false, error: true, data: null });
@@ -190,11 +237,20 @@ export default function InstitutionsPage() {
   return (
     <div className="p-6 max-w-7xl mx-auto">
       {/* Page header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-100">Institutional Portfolios</h1>
-        <p className="text-sm text-slate-500 mt-1">
-          Live 13F-HR holdings from SEC EDGAR · updated quarterly
-        </p>
+      <div className="flex items-start justify-between mb-6 gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-100">Institutional Portfolios</h1>
+          <p className="text-sm text-slate-500 mt-1">
+            Live 13F-HR holdings from SEC EDGAR · updated quarterly
+          </p>
+        </div>
+        <Link
+          href="/portfolio/institutions/analytics"
+          className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-sm text-slate-300 hover:text-sky-400 hover:border-sky-500/40 transition-all"
+        >
+          <span>📊</span>
+          <span>Analytics</span>
+        </Link>
       </div>
 
       {/* Category tabs */}

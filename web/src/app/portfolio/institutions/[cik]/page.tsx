@@ -34,16 +34,20 @@ function ChangePill({ change, pct }: { change: ProcessedHolding["change"]; pct: 
     );
   }
   if (change === "increased") {
+    const absPct = pct != null ? Math.abs(pct) : null;
+    const label = absPct == null ? "Added" : absPct > 999 ? ">999%" : `${absPct.toFixed(0)}%`;
     return (
       <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-sky-400/10 border border-sky-400/25 text-sky-400 font-medium">
-        ↑ {pct != null ? `${Math.abs(pct).toFixed(0)}%` : "Added"}
+        ↑ {label}
       </span>
     );
   }
   if (change === "decreased") {
+    const absPct = pct != null ? Math.abs(pct) : null;
+    const label = absPct == null ? "Reduced" : absPct > 999 ? ">999%" : `${absPct.toFixed(0)}%`;
     return (
       <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-rose-400/10 border border-rose-400/25 text-rose-400 font-medium">
-        ↓ {pct != null ? `${Math.abs(pct).toFixed(0)}%` : "Reduced"}
+        ↓ {label}
       </span>
     );
   }
@@ -123,16 +127,39 @@ export default function InstitutionDetailPage() {
   const [changeFilter, setChangeFilter] = useState<ChangeFilter>("all");
   const [sortKey, setSortKey] = useState<"rank" | "change">("rank");
 
-  useEffect(() => {
-    if (!cik) return;
+  // localStorage helpers — 90-day TTL matches the server-side file cache
+  const LS_PREFIX    = "edgar_13f_";
+  const CACHE_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+
+  function lsRead(id: string): HoldingsPayload | null {
+    try {
+      const raw = localStorage.getItem(`${LS_PREFIX}${id}`);
+      if (!raw) return null;
+      const entry = JSON.parse(raw) as { data: HoldingsPayload; cachedAt: number };
+      if (Date.now() - entry.cachedAt > CACHE_TTL_MS) {
+        localStorage.removeItem(`${LS_PREFIX}${id}`);
+        return null;
+      }
+      return entry.data;
+    } catch { return null; }
+  }
+
+  function lsWrite(id: string, payload: HoldingsPayload): void {
+    try {
+      localStorage.setItem(`${LS_PREFIX}${id}`, JSON.stringify({ data: payload, cachedAt: Date.now() }));
+    } catch { /* quota exceeded — ignore */ }
+  }
+
+  const doFetch = (id: string) => {
     setLoading(true);
     setError(null);
-    fetch(`/api/institutions/${cik}`, { cache: "no-store" })
+    fetch(`/api/institutions/${id}`, { cache: "no-store" })
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json() as Promise<HoldingsPayload>;
       })
       .then((d) => {
+        lsWrite(id, d);
         setData(d);
         setLoading(false);
       })
@@ -140,6 +167,19 @@ export default function InstitutionDetailPage() {
         setError(e.message);
         setLoading(false);
       });
+  };
+
+  useEffect(() => {
+    if (!cik) return;
+    // Try localStorage first — avoids a 30-60s EDGAR round-trip on repeat visits
+    const stored = lsRead(cik);
+    if (stored) {
+      setData(stored);
+      setLoading(false);
+      return;
+    }
+    doFetch(cik);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cik]);
 
   const filtered = useMemo(() => {
@@ -215,18 +255,7 @@ export default function InstitutionDetailPage() {
           <p className="text-rose-400 text-sm font-medium mb-1">Could not load SEC EDGAR data</p>
           <p className="text-rose-400/60 text-xs">{error}</p>
           <button
-            onClick={() => {
-              setLoading(true);
-              setError(null);
-              fetch(`/api/institutions/${cik}`, { cache: "no-store" })
-                .then((r) => {
-                  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-                  return r.json() as Promise<HoldingsPayload>;
-                })
-                .then(setData)
-                .catch((e: Error) => setError(e.message))
-                .finally(() => setLoading(false));
-            }}
+            onClick={() => doFetch(cik)}
             className="mt-3 text-xs text-rose-400 border border-rose-400/30 rounded px-3 py-1 hover:bg-rose-400/10"
           >
             Retry

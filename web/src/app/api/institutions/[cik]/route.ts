@@ -196,13 +196,25 @@ async function fetchInfotableXml(
 ): Promise<string | null> {
   const base = `https://www.sec.gov/Archives/edgar/data/${cikInt}/${accNodashes}`;
 
-  // 1. Try common infotable filenames (covers >90% of large filers)
+  // Reconstruct dashed accession for index file name:
+  // "000106798326000020" → "0001067983-26-000020"
+  const accDashes = accNodashes.replace(/^(\d{10})(\d{2})(\d{6})$/, "$1-$2-$3");
+
+  // Helper: resolve a possible absolute or relative href
+  const resolveHref = (href: string) =>
+    href.startsWith("/") ? `https://www.sec.gov${href}` : `${base}/${href}`;
+
+  // 1. Try common infotable filenames (covers ~90% of large filers)
   const candidates = [
     "infotable.xml",
     "form13fInfoTable.xml",
     "form13f_infotable.xml",
     "wf-form13f_infotable.xml",
     "xslForm13F_X02/infotable.xml",
+    "13f.xml",
+    "13finfo.xml",
+    "information_table.xml",
+    "13F_HR.xml",
   ];
 
   for (const fname of candidates) {
@@ -212,35 +224,73 @@ async function fetchInfotableXml(
         const text = await res.text();
         if (/<infoTable/i.test(text)) return text;
       }
-    } catch {
-      // try next candidate
-    }
+    } catch { /* try next */ }
   }
 
-  // 2. Fall back: parse filing index HTML to locate the INFORMATION TABLE doc
-  try {
-    const indexRes = await secFetch(`${base}/${accNodashes}-index.htm`);
-    if (indexRes.ok) {
+  // 2. Parse the filing index HTML to find the INFORMATION TABLE document.
+  //    EDGAR index URL uses the DASHED accession in the filename.
+  const indexUrls = [
+    `${base}/${accDashes}-index.htm`,   // correct EDGAR format
+    `${base}/${accNodashes}-index.htm`, // legacy fallback
+  ];
+
+  for (const indexUrl of indexUrls) {
+    try {
+      const indexRes = await secFetch(indexUrl);
+      if (!indexRes.ok) continue;
       const html = await indexRes.text();
-      // The index table has rows like:
-      //   <td>INFORMATION TABLE</td>  ... nearby <a href="someFile.xml">
+
+      // Collect XML/TXT hrefs — prioritise rows containing "INFORMATION TABLE"
+      const prioritised: string[] = [];
+      const fallback: string[] = [];
+
       const rows = html.split(/<tr[\s>]/i);
       for (const row of rows) {
-        if (/INFORMATION TABLE/i.test(row)) {
-          const hrefMatch = row.match(/href="([^"]+\.xml)"/i);
-          if (hrefMatch) {
-            const xmlRes = await secFetch(`${base}/${hrefMatch[1]}`);
-            if (xmlRes.ok) {
-              const text = await xmlRes.text();
-              if (/<infoTable/i.test(text)) return text;
-            }
-          }
+        const isInfoTable = /information.{0,5}table/i.test(row);
+        const hrefs = [...row.matchAll(/href="([^"]+)"/gi)].map(m => m[1]);
+        for (const href of hrefs) {
+          if (!/\.(xml|txt)$/i.test(href)) continue;
+          if (/index|submission|header/i.test(href)) continue;
+          (isInfoTable ? prioritised : fallback).push(href);
         }
       }
-    }
-  } catch {
-    // give up gracefully
+
+      // Also catch any XML link not already found
+      const allXml = [...html.matchAll(/href="([^"]+\.xml)"/gi)].map(m => m[1]);
+      for (const href of allXml) {
+        if (!prioritised.includes(href) && !fallback.includes(href) &&
+            !/index|submission|header/i.test(href)) {
+          fallback.push(href);
+        }
+      }
+
+      for (const href of [...prioritised, ...fallback]) {
+        try {
+          const xmlRes = await secFetch(resolveHref(href));
+          if (xmlRes.ok) {
+            const text = await xmlRes.text();
+            if (/<infoTable/i.test(text)) return text;
+          }
+        } catch { /* try next */ }
+      }
+    } catch { /* try next index URL */ }
   }
+
+  // 3. Last resort: fetch the complete SGML submission text (e.g. 0001061768-25-000003.txt).
+  //    EDGAR embeds every filing document in that file inside <TEXT>…</TEXT> wrappers,
+  //    so <infoTable> blocks appear regardless of the infotable's XML filename.
+  //    Covers filers like Baupost (bgllcq12025.xml) whose custom names don't match any
+  //    candidate and whose index page is JavaScript-rendered (our HTML parser can't see it).
+  try {
+    const submissionRes = await secFetch(`${base}/${accDashes}.txt`);
+    if (submissionRes.ok) {
+      const text = await submissionRes.text();
+      if (/<infoTable/i.test(text)) {
+        console.log(`[13F] found infoTable in complete submission text for acc ${accDashes}`);
+        return text;
+      }
+    }
+  } catch { /* give up */ }
 
   return null;
 }
@@ -295,7 +345,20 @@ export async function GET(
       );
     }
 
-    const currentRaw = parseInfotable(currentXml);
+    // Deduplicate by CUSIP — some filers (e.g. Berkshire Hathaway) report the
+    // same security across multiple sub-managers (NEAM, etc.) in the same 13F.
+    // Summing values + shares gives the correct consolidated position.
+    const byCusip = new Map<string, RawHolding>();
+    for (const h of parseInfotable(currentXml)) {
+      const existing = byCusip.get(h.cusip);
+      if (existing) {
+        existing.value  += h.value;
+        existing.shares += h.shares;
+      } else {
+        byCusip.set(h.cusip, { ...h });
+      }
+    }
+    const currentRaw = [...byCusip.values()];
     const totalValue = currentRaw.reduce((s, h) => s + h.value, 0);
 
     // Auto-detect value unit.
@@ -319,7 +382,16 @@ export async function GET(
       try {
         const prevXml = await fetchInfotableXml(cikInt, filings[1].accNodashes);
         if (prevXml) {
-          parseInfotable(prevXml).forEach((h) => prevByCusip.set(h.cusip, h));
+          // Same CUSIP dedup as current: sum sub-manager positions
+          for (const h of parseInfotable(prevXml)) {
+            const existing = prevByCusip.get(h.cusip);
+            if (existing) {
+              existing.value  += h.value;
+              existing.shares += h.shares;
+            } else {
+              prevByCusip.set(h.cusip, { ...h });
+            }
+          }
         }
       } catch {
         // QoQ comparison is best-effort
@@ -348,6 +420,15 @@ export async function GET(
           prev.shares > 0
             ? ((h.shares - prev.shares) / prev.shares) * 100
             : null;
+      }
+
+      // A legitimate quarterly position change cannot exceed ±1000%.
+      // Anything beyond that indicates a share-count unit mismatch between
+      // the two filings (e.g. one uses hundreds-of-shares, the other uses
+      // actual shares). Nulling it out preserves the direction badge ("↑")
+      // without showing a meaningless 5-digit number.
+      if (changePctShares !== null && Math.abs(changePctShares) > 1000) {
+        changePctShares = null;
       }
 
       return {

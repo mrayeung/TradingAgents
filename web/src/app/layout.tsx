@@ -14,8 +14,10 @@ const NAV = [
   { href: "/portfolio/correlation",  label: "🔗 Correlation",    desc: "Risk clusters" },
   { href: "/portfolio/sizing",       label: "📐 Sizing",         desc: "Kelly criterion" },
   { href: "/portfolio/rebalance",    label: "🔄 Rebalance",      desc: "Trade list" },
-  { href: "/portfolio/institutions", label: "🏦 Institutions",   desc: "13F portfolio tracker" },
-  { href: "/portfolio/options",      label: "🎯 Options Action",  desc: "IV · trade ideas · flow" },
+  { href: "/portfolio/institutions",           label: "🏦 Institutions",   desc: "13F portfolio tracker" },
+  { href: "/portfolio/institutions/analytics", label: "📊 13F Analytics",   desc: "Cross-fund intelligence" },
+  { href: "/portfolio/options",                label: "🎯 Options Action",  desc: "IV · trade ideas · flow" },
+  { href: "/portfolio/macro",        label: "🌐 Macro Dashboard", desc: "Cross-asset regime view" },
   { href: "/portfolio/reports",      label: "📚 Reports",         desc: "Full report library" },
 ];
 

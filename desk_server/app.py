@@ -424,29 +424,67 @@ async def portfolio_construct(request: Request) -> dict:
     results_dir = Path(DEFAULT_CONFIG["results_dir"])
 
     def _run():
-        # Fetch price history
+        import math
+
+        # ── Fetch price history ──────────────────────────────────────────────
         raw = yf.download(tickers, period=f"{lookback_days}d", auto_adjust=True, progress=False)
         if isinstance(raw.columns, pd.MultiIndex):
             prices_df = raw["Close"] if "Close" in raw.columns.get_level_values(0) else raw
         else:
-            prices_df = raw
+            # Single-ticker download: raw has columns [Close, High, Low, …]; keep only Close
+            prices_df = raw[["Close"]] if "Close" in raw.columns else raw
+            prices_df.columns = [tickers[0]]
 
-        # Load analyst signals
+        # ── Validate: detect tickers with no usable price data ──────────────
+        invalid: list[str] = []
+        valid: list[str] = []
+        for t in tickers:
+            col = prices_df[t] if t in prices_df.columns else pd.Series(dtype=float)
+            if col.dropna().empty:
+                invalid.append(t)
+            else:
+                valid.append(t)
+
+        if invalid and not valid:
+            # Every single ticker was unrecognised — raise a proper 422
+            raise HTTPException(
+                status_code=422,
+                detail=f"No price data found for: {', '.join(invalid)}. "
+                       "Check that you entered valid US equity tickers (e.g. AAPL, MSFT, NVDA).",
+            )
+
+        if invalid:
+            # Some tickers bad, some good — drop the bad ones and continue
+            prices_df = prices_df[valid]
+
+        # ── Load analyst signals ─────────────────────────────────────────────
         signal_rows = aggregate_signals(results_dir)
 
-        # Black-Litterman posterior returns
-        bl_returns = compute_bl_returns(tickers, prices_df, signal_rows, risk_aversion)
+        # ── Black-Litterman posterior returns ────────────────────────────────
+        bl_returns = compute_bl_returns(valid, prices_df, signal_rows, risk_aversion)
 
-        # Optimise
+        # ── Optimise ─────────────────────────────────────────────────────────
         result = optimize_portfolio(
-            tickers, prices_df, bl_returns, risk_aversion, max_position, min_position
+            valid, prices_df, bl_returns, risk_aversion, max_position, min_position
         )
         result["bl_returns"] = bl_returns
+
+        # ── Sanitise any NaN/inf that scipy or numpy may have produced ───────
+        for key in ("expected_return", "volatility", "sharpe"):
+            v = result.get(key)
+            if v is None or (isinstance(v, float) and not math.isfinite(v)):
+                result[key] = None
+
+        if invalid:
+            result["invalid_tickers"] = invalid
+
         return result
 
     try:
         result = await asyncio.to_thread(_run)
         return result
+    except HTTPException:
+        raise
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -974,6 +1012,336 @@ def _options_for_ticker(ticker: str) -> dict:
         "ivRegime": iv_regime,
         "expirations": expiry_data,
     }
+
+
+@app.get("/macro/data")
+async def macro_data() -> dict:
+    """Cross-asset macro dashboard — live data from yfinance + CBOE + optional FRED.
+
+    Live sources (always):
+      yfinance EOD (~15-min delayed intraday): yields, VIX, ETF ratios, FX, commodities
+      CBOE public CSV: equity + total put/call ratio (daily, best-effort)
+
+    Live sources (needs FRED_API_KEY env var):
+      FRED: 2Y yield, CPI, Core PCE, 10Y breakeven, 10Y real yield, NFCI, national debt
+
+    Mock placeholders (no free real-time source):
+      Fed Funds futures path, GEX profile, Z-scores, McClellan/NYSI, NAAIM, AAII, term premium
+    """
+
+    def _build() -> dict:  # noqa: PLR0912, PLR0915
+        import io
+        import json as _json
+        import math
+        import urllib.parse
+        import urllib.request
+
+        import numpy as np
+        import pandas as pd
+        import yfinance as yf
+
+        # ── helpers ───────────────────────────────────────────────────────
+        def safe(v) -> float | None:
+            if v is None:
+                return None
+            try:
+                f = float(v)
+                return None if (math.isnan(f) or math.isinf(f)) else round(f, 4)
+            except Exception:
+                return None
+
+        def fmt_d(ts) -> str:
+            return pd.Timestamp(ts).strftime("%-d %b")
+
+        def get_col(df: pd.DataFrame, ticker: str) -> pd.Series:
+            """Safely extract a Close column from a multi-ticker download."""
+            try:
+                if isinstance(df.columns, pd.MultiIndex):
+                    return df[("Close", ticker)].dropna()
+                return df["Close"].dropna()
+            except Exception:
+                return pd.Series(dtype=float)
+
+        def to_records(series: pd.Series, key: str = "v") -> list[dict]:
+            return [{"d": fmt_d(ts), key: safe(v)} for ts, v in series.items() if safe(v) is not None]
+
+        def ratio_records(a: pd.Series, b: pd.Series, key: str = "ratio") -> list[dict]:
+            idx = a.index.intersection(b.index)
+            r = (a.reindex(idx) / b.reindex(idx)).dropna()
+            return [{"d": fmt_d(ts), key: safe(v)} for ts, v in r.items() if safe(v) is not None]
+
+        # ── batch daily download (1 year) ─────────────────────────────────
+        DAILY = [
+            "^TNX", "^FVX",              # 10Y / 5Y yields
+            "^VIX", "^VXV",              # vol
+            "^GSPC",                     # S&P 500
+            "SPY", "RSP",                # cap vs equal-weight
+            "SOXX", "SMH",               # semis
+            "EWJ", "FEZ", "FXI", "EWY", "EWZ", "EWC", "AFK",  # intl ETFs
+            "USDJPY=X", "AUDJPY=X",      # FX
+            "BZ=F", "CL=F",              # crude (Brent / WTI front-month)
+            "GC=F", "SI=F", "HG=F",      # Gold / Silver / Copper
+        ]
+        raw_d = yf.download(DAILY, period="1y", interval="1d",
+                            auto_adjust=True, progress=False, group_by="ticker")
+
+        # Intraday (today, 5-min bars)
+        INTRA = ["^TNX", "^VIX", "^VXV"]
+        raw_i = yf.download(INTRA, period="2d", interval="5m",
+                            auto_adjust=True, progress=False, group_by="ticker")
+
+        # Pull all columns
+        tnx  = get_col(raw_d, "^TNX")
+        fvx  = get_col(raw_d, "^FVX")
+        vix_d = get_col(raw_d, "^VIX")
+        vxv_d = get_col(raw_d, "^VXV")
+        spx  = get_col(raw_d, "^GSPC")
+        spy  = get_col(raw_d, "SPY")
+        rsp  = get_col(raw_d, "RSP")
+        soxx = get_col(raw_d, "SOXX")
+        smh  = get_col(raw_d, "SMH")
+        usdjpy = get_col(raw_d, "USDJPY=X")
+        audjpy = get_col(raw_d, "AUDJPY=X")
+        brent  = get_col(raw_d, "BZ=F")
+        wti    = get_col(raw_d, "CL=F")
+        gold   = get_col(raw_d, "GC=F")
+        silver = get_col(raw_d, "SI=F")
+        copper = get_col(raw_d, "HG=F")
+
+        vix_i = get_col(raw_i, "^VIX")
+        vxv_i = get_col(raw_i, "^VXV")
+        tnx_i = get_col(raw_i, "^TNX")
+
+        # ── Tab 1: Rates ──────────────────────────────────────────────────
+        # Intraday 5Y + 10Y (5-min bars, today only)
+        today = pd.Timestamp.now().date()
+        vix_today = vix_i[vix_i.index.date == today]
+        tnx_today = tnx_i[tnx_i.index.date == today]
+        intraday_rates = []
+        for ts in vix_today.index:
+            y10 = safe(tnx_today.get(ts))
+            y5  = safe(fvx.iloc[-1]) if not fvx.empty else None  # 5Y is EOD only
+            intraday_rates.append({"t": ts.strftime("%H:%M"), "y5": y5, "y10": y10})
+
+        # Daily yield series
+        y10_series = to_records(tnx, "v")
+        y5_series  = to_records(fvx, "v")
+
+        # 10Y minus 5Y spread (proxy for curve steepness; FRED T10Y2Y overrides if key set)
+        spread_idx = tnx.index.intersection(fvx.index)
+        spread_series = (tnx.reindex(spread_idx) - fvx.reindex(spread_idx)).dropna()
+        spread_history = [{"d": fmt_d(ts), "spread": safe(v)} for ts, v in spread_series.items() if safe(v) is not None]
+
+        # ── Tab 2: Equities ───────────────────────────────────────────────
+        # SPY/RSP ratio with 40D MA
+        sr_idx = spy.index.intersection(rsp.index)
+        sr = (spy.reindex(sr_idx) / rsp.reindex(sr_idx)).dropna()
+        sr_ma = sr.rolling(40).mean()
+        spy_rsp = [
+            {"d": fmt_d(ts), "ratio": safe(sr.get(ts)), "ma200": safe(sr_ma.get(ts))}
+            for ts in sr.index if safe(sr.get(ts)) is not None
+        ]
+
+        # SOXX/SMH and SOXX/SPY
+        sx_idx = soxx.index.intersection(smh.index).intersection(spy.index)
+        soxx_data = [
+            {"d": fmt_d(ts),
+             "smhRatio": safe(soxx.get(ts) / smh.get(ts) if smh.get(ts) else None),
+             "spyRatio": safe(soxx.get(ts) / spy.get(ts) if spy.get(ts) else None)}
+            for ts in sx_idx
+            if soxx.get(ts) and smh.get(ts) and spy.get(ts)
+        ]
+
+        # International ETFs vs SPY (weekly, 0-1 normalized for overlay)
+        INTL_KEYS = ["ewj", "fez", "fxi", "ewy", "ewz", "ewc", "afk"]
+        INTL_UPPER = {k: k.upper() for k in INTL_KEYS}
+        intl_data: dict = {}
+        for k in INTL_KEYS:
+            etf = get_col(raw_d, INTL_UPPER[k])
+            if etf.empty or spy.empty:
+                intl_data[k] = []
+                continue
+            idx = etf.index.intersection(spy.index)
+            ratio = (etf.reindex(idx) / spy.reindex(idx)).dropna()
+            mn, mx = ratio.min(), ratio.max()
+            norm = ((ratio - mn) / (mx - mn + 1e-9)).round(3)
+            weekly = norm.resample("W").last().dropna()
+            # fx overlay: also normalize on same 0-1 scale (ratio serves as its own signal)
+            intl_data[k] = [{"d": fmt_d(ts), "ratio": float(v), "fx": float(v)} for ts, v in weekly.items()]
+
+        # ── Tab 3: Options ────────────────────────────────────────────────
+        # Intraday VIX / VIX/VXV
+        vix_intra_data = []
+        for ts in vix_today.index:
+            vv = safe(vix_today.get(ts))
+            vxvv = safe(vxv_i.get(ts)) if ts in vxv_i.index else None
+            if vv:
+                vix_intra_data.append({
+                    "t": ts.strftime("%H:%M"),
+                    "vix": vv,
+                    "ratio": round(vv / vxvv, 4) if vxvv else None,
+                })
+
+        # CBOE PCR (public CSV, best-effort)
+        def _fetch_cboe_pcr(url: str) -> pd.Series:
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 TradingDesk"})
+                with urllib.request.urlopen(req, timeout=12) as resp:
+                    raw_csv = resp.read().decode("utf-8", errors="ignore")
+                lines = raw_csv.strip().split("\n")
+                # Find header row containing DATE or Date
+                start = 0
+                for i, ln in enumerate(lines):
+                    if "DATE" in ln.upper():
+                        start = i
+                        break
+                df = pd.read_csv(
+                    io.StringIO("\n".join(lines[start:])),
+                    parse_dates=[0], index_col=0,
+                )
+                df.index.name = "DATE"
+                # Find the P/C or RATIO column
+                ratio_col = next((c for c in df.columns if "RATIO" in c.upper() or "P/C" in c.upper()), None)
+                if ratio_col is None:
+                    return pd.Series(dtype=float)
+                return pd.to_numeric(df[ratio_col], errors="coerce").dropna().tail(252)
+            except Exception:
+                return pd.Series(dtype=float)
+
+        eq_pcr_s  = _fetch_cboe_pcr("https://www.cboe.com/publish/scheduledtask/mktdata/datahouse/equitypc.csv")
+        tot_pcr_s = _fetch_cboe_pcr("https://www.cboe.com/publish/scheduledtask/mktdata/datahouse/totalpc.csv")
+
+        pcr_daily: list[dict] = []
+        pcr_source = "mock"
+        if not eq_pcr_s.empty:
+            ma20 = eq_pcr_s.rolling(20).mean()
+            for ts in eq_pcr_s.index:
+                eq_v  = safe(eq_pcr_s.get(ts))
+                tot_v = safe(tot_pcr_s.get(ts)) if ts in tot_pcr_s.index else None
+                ma_v  = safe(ma20.get(ts))
+                if eq_v:
+                    pcr_daily.append({
+                        "d": fmt_d(ts),
+                        "eqPcr":  eq_v,
+                        "totPcr": tot_v if tot_v else round(eq_v * 1.48, 3),
+                        "ma20":   ma_v,
+                    })
+            pcr_source = "cboe"
+
+        eq_pcr_last  = pcr_daily[-1]["eqPcr"]  if pcr_daily else None
+        tot_pcr_last = pcr_daily[-1]["totPcr"] if pcr_daily else None
+        eq_ma20_last = pcr_daily[-1]["ma20"]   if pcr_daily else None
+
+        # ── Tab 4: FX ─────────────────────────────────────────────────────
+        def weekly_merge(a: pd.Series, b: pd.Series, ka: str, kb: str) -> list[dict]:
+            idx = a.index.intersection(b.index)
+            aw = a.reindex(idx).resample("W").last().dropna()
+            bw = b.reindex(idx).resample("W").last().dropna()
+            common = aw.index.intersection(bw.index)
+            return [{"d": fmt_d(ts), ka: safe(aw.get(ts)), kb: safe(bw.get(ts))} for ts in common if safe(aw.get(ts))]
+
+        usdjpy_data = weekly_merge(usdjpy, tnx, "usdjpy", "y10")
+        audjpy_data = weekly_merge(audjpy, spx, "audjpy", "spx")
+
+        # ── Tab 5: Energy ─────────────────────────────────────────────────
+        en_idx = brent.index.intersection(wti.index)
+        crude_data = [
+            {"d": fmt_d(ts),
+             "brent": safe(brent.get(ts)),
+             "wti":   safe(wti.get(ts)),
+             "spread": safe(brent.get(ts) - wti.get(ts)) if safe(brent.get(ts)) and safe(wti.get(ts)) else None}
+            for ts in en_idx if safe(brent.get(ts)) and safe(wti.get(ts))
+        ]
+
+        # Copper/Gold ratio (HG in USD/lb, GC in USD/oz → ratio × 1000 for sensible scale)
+        cg_idx = copper.index.intersection(gold.index)
+        cu_au  = (copper.reindex(cg_idx) / gold.reindex(cg_idx) * 1000).dropna()
+        # Real yield proxy = 10Y nominal - 2.2% avg breakeven (replaced by FRED DFII10 if key set)
+        ry_proxy = tnx.reindex(cg_idx) - 2.2
+        cu_gold_data = [
+            {"d": fmt_d(ts), "cuGold": safe(cu_au.get(ts)), "realYield": safe(ry_proxy.get(ts))}
+            for ts in cg_idx if safe(cu_au.get(ts))
+        ]
+
+        gs_idx = gold.index.intersection(silver.index)
+        gs = (gold.reindex(gs_idx) / silver.reindex(gs_idx)).dropna()
+        gold_silver_data = [{"d": fmt_d(ts), "ratio": safe(v)} for ts, v in gs.items() if safe(v)]
+
+        # ── Systemic: VIX regime ──────────────────────────────────────────
+        vix_last  = safe(vix_d.iloc[-1])  if not vix_d.empty  else None
+        vix_ma200 = safe(vix_d.rolling(200).mean().iloc[-1]) if len(vix_d) >= 50 else None
+        vix_above_ma = bool(vix_last and vix_ma200 and vix_last > vix_ma200)
+
+        tnx_last = safe(tnx.iloc[-1]) if not tnx.empty else None
+        fvx_last = safe(fvx.iloc[-1]) if not fvx.empty else None
+        yield_inverted = bool(tnx_last and fvx_last and tnx_last < fvx_last)
+
+        # ── Optional FRED enrichment ──────────────────────────────────────
+        fred_key = os.environ.get("FRED_API_KEY", "")
+        fred: dict = {}
+        if fred_key:
+            def _fred(sid: str, lim: int = 260):
+                q = urllib.parse.urlencode({
+                    "series_id": sid, "api_key": fred_key,
+                    "file_type": "json", "limit": lim, "sort_order": "desc",
+                })
+                url = f"https://api.stlouisfed.org/fred/series/observations?{q}"
+                req = urllib.request.Request(url, headers={"User-Agent": "TradingDesk"})
+                with urllib.request.urlopen(req, timeout=12) as resp:
+                    obs = _json.loads(resp.read()).get("observations", [])
+                return [{"d": o["date"][:7], "v": float(o["value"])}
+                        for o in reversed(obs)
+                        if o.get("value") not in (".", None)]
+
+            for sid, key in [("DGS2","dgs2"), ("T10Y2Y","t10y2y"), ("T10YIE","t10yie"),
+                              ("DFII10","dfii10"), ("CPIAUCSL","cpi"), ("PCEPILFE","pce"),
+                              ("NFCI","nfci"), ("GFDEBTN","gfdebtn")]:
+                with contextlib.suppress(Exception):
+                    fred[key] = _fred(sid)
+
+        return {
+            "source": "live",
+            "pcrSource": pcr_source,
+            "hasFred": bool(fred_key and fred),
+            "rates": {
+                "intradayRates": intraday_rates,
+                "y10Series":     y10_series,
+                "y5Series":      y5_series,
+                "spreadHistory": spread_history,
+            },
+            "equities": {
+                "spyRsp":   spy_rsp,
+                "soxx":     soxx_data,
+                "intlData": intl_data,
+            },
+            "options": {
+                "vixData":    vix_intra_data,
+                "pcrDaily":   pcr_daily,
+                "eqPcrLast":  eq_pcr_last,
+                "totPcrLast": tot_pcr_last,
+                "eqMa20Last": eq_ma20_last,
+            },
+            "fx": {
+                "usdjpy": usdjpy_data,
+                "audjpy": audjpy_data,
+            },
+            "energy": {
+                "crude":       crude_data,
+                "cuGold":      cu_gold_data,
+                "goldSilver":  gold_silver_data,
+            },
+            "systemic": {
+                "vixAboveMA":   vix_above_ma,
+                "yieldInverted": yield_inverted,
+                "vixLast":      vix_last,
+            },
+            "fred": fred,
+        }
+
+    try:
+        return await asyncio.to_thread(_build)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"macro data fetch error: {exc}") from exc
 
 
 @app.get("/options/{ticker}")

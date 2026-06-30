@@ -249,3 +249,6 @@ reports/
 # Next.js build artefacts and dependencies (re-ignore under the !web/** exemption)
 web/.next/
 web/node_modules/
+
+# SEC EDGAR file cache — populated by scripts/prefetch-edgar.mjs, not source code
+web/.edgar-cache/

@@ -35,10 +35,12 @@ export interface SignalRow {
 
 export interface PortfolioConstructResult {
   weights: Record<string, number>;
-  expected_return: number;
-  volatility: number;
-  sharpe: number;
+  expected_return: number | null;
+  volatility: number | null;
+  sharpe: number | null;
   bl_returns: Record<string, number>;
+  /** Server may populate this when one or more tickers had no price data */
+  invalid_tickers?: string[];
 }
 
 export interface CorrelationResult {
