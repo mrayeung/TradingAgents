@@ -1,19 +1,34 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // The portfolio API lives on localhost:8765 (Docker container).
-  //
-  // We use `afterFiles` so Next.js resolves its own route handlers first
-  // (e.g. app/api/institutions/[cik]/route.ts).  Only paths that have no
-  // matching Next.js route file fall through to the desk-server proxy.
+  // Route specific API prefixes to the Python desk-server (localhost:8765).
+  // Only paths in this list are proxied — everything else (e.g. /api/institutions/)
+  // is handled by Next.js route files in app/api/.
   async rewrites() {
-    return {
-      afterFiles: [
-        {
-          source: "/api/:path*",
-          destination: "http://localhost:8765/:path*",
-        },
-      ],
-    };
+    const DESK = "http://localhost:8765";
+
+    // Every top-level path served by desk_server/app.py.
+    // Add new entries here if you add routes to app.py.
+    const deskPrefixes = [
+      "health",
+      "capabilities",
+      "journal",
+      "reports",
+      "search",
+      "prices",
+      "openrouter",
+      "test",
+      "test_fred",
+      "runs",
+      "portfolio",
+      "options",
+    ];
+
+    // ":path*" matches zero-or-more segments, covering both
+    // bare paths (/api/health) and sub-paths (/api/runs/123/events).
+    return deskPrefixes.map((prefix) => ({
+      source: `/api/${prefix}/:path*`,
+      destination: `${DESK}/${prefix}/:path*`,
+    }));
   },
 };
 
