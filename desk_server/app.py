@@ -1063,26 +1063,55 @@ async def portfolio_scorecard(refresh: bool = False) -> dict:
             except Exception:
                 return None
 
-        def fred_series(sid: str, lim: int = 520) -> pd.Series:
-            if not fred_key:
-                return pd.Series(dtype=float)
+        def fred_public_csv(sid: str, lim: int = 520) -> pd.Series:
+            """Fetch a FRED series via the public CSV endpoint — NO API key required."""
             try:
-                q = urllib.parse.urlencode({
-                    "series_id": sid, "api_key": fred_key,
-                    "file_type": "json", "limit": lim, "sort_order": "desc",
-                })
-                url = f"https://api.stlouisfed.org/fred/series/observations?{q}"
-                req = urllib.request.Request(url, headers={"User-Agent": "TradingDesk/1.0"})
+                import io as _io
+                url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={sid}"
+                req = urllib.request.Request(
+                    url,
+                    headers={"User-Agent": "Mozilla/5.0 (compatible; TradingDesk/1.0)"},
+                )
                 with urllib.request.urlopen(req, timeout=15) as resp:
-                    obs = _json.loads(resp.read()).get("observations", [])
-                data = {
-                    pd.Timestamp(o["date"]): float(o["value"])
-                    for o in obs
-                    if o.get("value") not in (".", None)
-                }
-                return pd.Series(data).sort_index()
+                    csv_text = resp.read().decode("utf-8")
+                rows = csv_text.strip().splitlines()[1:]  # skip header
+                data = {}
+                for line in rows:
+                    parts = line.split(",")
+                    if len(parts) >= 2 and parts[1].strip() not in (".", ""):
+                        try:
+                            data[pd.Timestamp(parts[0].strip())] = float(parts[1].strip())
+                        except (ValueError, TypeError):
+                            pass
+                s = pd.Series(data).sort_index()
+                return s.tail(lim) if len(s) > lim else s
             except Exception:
                 return pd.Series(dtype=float)
+
+        def fred_series(sid: str, lim: int = 520) -> pd.Series:
+            """Fetch a FRED series — uses API key if available, falls back to public CSV."""
+            if fred_key:
+                try:
+                    q = urllib.parse.urlencode({
+                        "series_id": sid, "api_key": fred_key,
+                        "file_type": "json", "limit": lim, "sort_order": "desc",
+                    })
+                    url = f"https://api.stlouisfed.org/fred/series/observations?{q}"
+                    req = urllib.request.Request(url, headers={"User-Agent": "TradingDesk/1.0"})
+                    with urllib.request.urlopen(req, timeout=15) as resp:
+                        obs = _json.loads(resp.read()).get("observations", [])
+                    data = {
+                        pd.Timestamp(o["date"]): float(o["value"])
+                        for o in obs
+                        if o.get("value") not in (".", None)
+                    }
+                    s = pd.Series(data).sort_index()
+                    if not s.empty:
+                        return s
+                except Exception:
+                    pass
+            # No API key or API failed — fall back to public CSV
+            return fred_public_csv(sid, lim)
 
         def z_score_series(
             series: pd.Series,
@@ -1160,6 +1189,8 @@ async def portfolio_scorecard(refresh: bool = False) -> dict:
         payems      = fred_series("PAYEMS")
         drtscilm    = fred_series("DRTSCILM")
         nfci        = fred_series("NFCI")
+        cc_delinq   = fred_series("DRCCLACBS")    # Credit card delinquency rate (quarterly)
+        mort_delinq = fred_series("DRSFRMACBN")   # Mortgage delinquency rate (quarterly)
         # WILL5000PRFC = Wilshire 5000 Full Cap — total dollar value of all
         # active publicly traded U.S. equities (the institutionally correct
         # numerator for the Buffett Indicator, per FRED / currentmarketvaluation.com)
@@ -1183,25 +1214,24 @@ async def portfolio_scorecard(refresh: bool = False) -> dict:
             warnings.append(f"Forward P/E calc failed: {e}")
             forward_pe = safe(spy_info.get("forwardPE"))  # fallback
         price_to_book  = safe(spy_info.get("priceToBook"))
-        # SPY is an ETF — yfinance returns None for priceToSalesTrailing12Months.
-        # Scrape the real S&P 500 P/S from multpl.com instead.
-        price_to_sales = safe(spy_info.get("priceToSalesTrailing12Months"))
-        if price_to_sales is None:
-            try:
-                import html
-                ps_req = urllib.request.Request(
-                    "https://www.multpl.com/s-p-500-price-to-sales",
-                    headers={"User-Agent": "Mozilla/5.0 (compatible; TradingDesk/1.0)"},
-                )
-                with urllib.request.urlopen(ps_req, timeout=10) as ps_resp:
-                    ps_html = ps_resp.read().decode("utf-8", errors="replace")
-                # multpl.com puts the current value in <div id="current">X.XX</div>
-                import re as _re
-                m = _re.search(r'id=["\']current["\'][^>]*>\s*([\d.]+)', ps_html)
-                if m:
-                    price_to_sales = safe(m.group(1))
-            except Exception as e:
-                warnings.append(f"P/S scrape failed: {e}")
+        # S&P 500 consensus aggregate fundamentals (Wall Street / FactSet method).
+        # Update these figures quarterly as consensus estimates are revised.
+        # Source: S&P Dow Jones Indices / FactSet earnings insight reports.
+        AGGREGATE_EPS = 244.50   # S&P 500 TTM trailing EPS (index-wide)
+        AGGREGATE_SPS = 2054.62  # S&P 500 TTM Sales Per Share (index-wide)
+
+        # P/S = live ^SPX price / Aggregate Sales Per Share
+        # Avoids SPY ETF limitation — yfinance returns None for priceToSalesTrailing12Months on ETFs.
+        price_to_sales: float | None = None
+        try:
+            _spx_for_ps = safe(
+                yf.Ticker("^SPX").info.get("regularMarketPrice")
+                or yf.Ticker("^GSPC").info.get("regularMarketPrice")
+            )
+            if _spx_for_ps and AGGREGATE_SPS > 0:
+                price_to_sales = round(_spx_for_ps / AGGREGATE_SPS, 2)
+        except Exception as _e:
+            warnings.append(f"P/S calc: {_e}")
         div_yield      = safe(spy_info.get("dividendYield"))
         if div_yield and div_yield < 0.1:
             div_yield = round(div_yield * 100, 3)
@@ -1250,16 +1280,12 @@ async def portfolio_scorecard(refresh: bool = False) -> dict:
         # Shiller CAPE approximation (trailing PE × 1.30 smoothing factor)
         cape_approx = round(trailing_pe * 1.30, 1) if trailing_pe else None
 
-        # Profit margin via P/S and earnings
-        net_margin = None
-        try:
-            price = safe(spy_info.get("regularMarketPrice") or spy_info.get("previousClose"))
-            if price and price_to_sales and price_to_sales > 0 and trailing_pe and trailing_pe > 0:
-                rev_ps = price / price_to_sales
-                eps = price / trailing_pe
-                net_margin = round(eps / rev_ps * 100, 2) if rev_ps > 0 else None
-        except Exception:
-            pass
+        # S&P 500 Net Margin — Wall Street / FactSet method: EPS ÷ SPS × 100
+        # Uses same consensus aggregate figures as the P/S calculation above.
+        # Update AGGREGATE_EPS and AGGREGATE_SPS quarterly as consensus shifts.
+        net_margin: float | None = None
+        if AGGREGATE_EPS and AGGREGATE_SPS and AGGREGATE_SPS > 0:
+            net_margin = round((AGGREGATE_EPS / AGGREGATE_SPS) * 100, 2)
 
         cutoff10 = pd.Timestamp.now() - pd.DateOffset(years=10)
 
@@ -1380,7 +1406,8 @@ async def portfolio_scorecard(refresh: bool = False) -> dict:
         # 4. Price-to-Sales
         z, st, nt = bench_z(price_to_sales, avg=1.7, std=0.5)
         metrics.append(row("Price-to-Sales", "Valuation Multiples", price_to_sales, "x",
-                           z, st, nt, avg=1.7, std=0.5, source="multpl.com (S&P 500 P/S)"))
+                           z, st, nt, avg=1.7, std=0.5,
+                           source=f"^SPX ÷ SPS ${AGGREGATE_SPS:.2f} (FactSet consensus)"))
 
         # 5. Dividend Yield (lower = expensive)
         z, st, nt = bench_z(div_yield, avg=1.9, std=0.45, higher_is_overvalued=False)
@@ -1496,7 +1523,8 @@ async def portfolio_scorecard(refresh: bool = False) -> dict:
         if net_margin and net_margin > 15:
             nt = "★ RECORD-HIGH MARGINS — reversion risk"
         metrics.append(row("S&P 500 Net Margin", "Economic", net_margin, "%",
-                           z, st, nt, avg=11.5, std=2.5, source="yfinance SPY"))
+                           z, st, nt, avg=11.5, std=2.5,
+                           source=f"EPS ${AGGREGATE_EPS} ÷ SPS ${AGGREGATE_SPS} (FactSet)"))
 
         # 18. S&P 500 Breadth (% of top 15 components above 200D MA)
         z, st, nt = bench_z(breadth_pct, avg=65.0, std=18.0)
@@ -1512,6 +1540,36 @@ async def portfolio_scorecard(refresh: bool = False) -> dict:
         metrics.append(row("Synthetic Bull/Bear", "Sentiment", bb_score, "/10",
                            _bb_z, bb_status, bb_note, avg=5.0, std=2.5,
                            source="AAII · CBOE PCR · Breadth · FRED HY spreads"))
+
+        # 20. Credit Card Delinquency Rate (FRED DRCCLACBS — quarterly)
+        # Higher delinquency = consumer stress = bearish macro signal
+        cc_curr = safe(cc_delinq.iloc[-1]) if not cc_delinq.empty else None
+        mu_cc_dq, std_cc_dq = ms(cc_delinq, 3.5, 1.0)
+        if not cc_delinq.empty and cc_curr is not None:
+            z, st, nt = z_score_series(cc_delinq, cc_curr, higher_is_overvalued=True)
+        else:
+            z, st, nt = bench_z(cc_curr, avg=mu_cc_dq, std=std_cc_dq, higher_is_overvalued=True)
+        if cc_curr and cc_curr > 6.0:
+            nt = "★ ELEVATED — near GFC stress levels"
+        metrics.append(row("Credit Card Delinquency", "Consumer Stress", cc_curr, "%",
+                           z, st, nt, avg=round(mu_cc_dq, 2), std=round(std_cc_dq, 2),
+                           source="FRED DRCCLACBS (quarterly)"))
+
+        # 21. Mortgage Delinquency Rate (FRED DRSFRMACBN — quarterly)
+        # Higher delinquency = housing stress = bearish macro signal
+        mort_curr = safe(mort_delinq.iloc[-1]) if not mort_delinq.empty else None
+        mu_mort, std_mort = ms(mort_delinq, 2.5, 1.2)
+        if not mort_delinq.empty and mort_curr is not None:
+            z, st, nt = z_score_series(mort_delinq, mort_curr, higher_is_overvalued=True)
+        else:
+            z, st, nt = bench_z(mort_curr, avg=mu_mort, std=std_mort, higher_is_overvalued=True)
+        if mort_curr and mort_curr > 5.0:
+            nt = "★ ELEVATED — housing stress building"
+        elif mort_curr and mort_curr < 1.5:
+            nt = "Near historic lows — strong housing equity"
+        metrics.append(row("Mortgage Delinquency", "Consumer Stress", mort_curr, "%",
+                           z, st, nt, avg=round(mu_mort, 2), std=round(std_mort, 2),
+                           source="FRED DRSFRMACBN (quarterly)"))
 
         # ── Summary ───────────────────────────────────────────────────────────
         statuses = [m["status"] for m in metrics]
