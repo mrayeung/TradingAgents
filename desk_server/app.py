@@ -57,6 +57,10 @@ app.add_middleware(
 
 _runs: dict[str, RunHandle] = {}
 
+# S&P 500 Valuation Scorecard — 7-day in-memory cache
+_scorecard_cache: dict = {"data": None, "ts": 0.0}
+_SCORECARD_TTL = 7 * 24 * 3600  # 7 days
+
 # Runs execute on a dedicated single-worker pool, NOT the event loop's default
 # executor. This (a) serializes runs so two concurrent runs never race on the
 # shared ``os.environ`` provider keys, and (b) keeps multi-minute runs off the
@@ -326,7 +330,13 @@ async def run_state(run_id: str) -> dict:
     handle = _runs.get(run_id)
     if handle is None:
         raise HTTPException(status_code=404, detail="unknown run")
-    return {"run_id": run_id, "status": handle.status, "done": handle.done, "events": handle.seq}
+    return {
+        "run_id": run_id,
+        "status": handle.status,
+        "done": handle.done,
+        "events": handle.seq,
+        "error_message": handle.error_message,
+    }
 
 
 @app.get("/runs/{run_id}/events")
@@ -1012,6 +1022,392 @@ def _options_for_ticker(ticker: str) -> dict:
         "ivRegime": iv_regime,
         "expirations": expiry_data,
     }
+
+
+@app.get("/portfolio/scorecard")
+async def portfolio_scorecard(refresh: bool = False) -> dict:
+    """S&P 500 Valuation Scorecard — 19 metrics vs 10-year historical averages.
+
+    Data sources:
+      FRED (needs FRED_API_KEY env var): credit spreads, treasury yield, market-cap/GDP,
+        consumer confidence, payrolls, lending standards, NFCI
+      yfinance: SPY info (P/E, P/B, P/S, div yield), ^GSPC price vs 200D MA, ^VIX
+      Calculated: Equity Risk Premium (earnings yield − 10Y yield), Shiller CAPE approx
+
+    Cached for 7 days (pass ?refresh=true to force refresh).
+    """
+    import time as _time
+    now = _time.time()
+    if not refresh and _scorecard_cache["data"] and (now - _scorecard_cache["ts"]) < _SCORECARD_TTL:
+        return _scorecard_cache["data"]
+
+    def _build() -> dict:
+        import math
+        import json as _json
+        import urllib.request
+        import urllib.parse
+
+        import numpy as np
+        import pandas as pd
+        import yfinance as yf
+
+        fred_key = os.environ.get("FRED_API_KEY", "")
+
+        # ── helpers ──────────────────────────────────────────────────────────
+        def safe(v):
+            if v is None:
+                return None
+            try:
+                f = float(v)
+                return None if (math.isnan(f) or math.isinf(f)) else f
+            except Exception:
+                return None
+
+        def fred_series(sid: str, lim: int = 520) -> pd.Series:
+            if not fred_key:
+                return pd.Series(dtype=float)
+            try:
+                q = urllib.parse.urlencode({
+                    "series_id": sid, "api_key": fred_key,
+                    "file_type": "json", "limit": lim, "sort_order": "desc",
+                })
+                url = f"https://api.stlouisfed.org/fred/series/observations?{q}"
+                req = urllib.request.Request(url, headers={"User-Agent": "TradingDesk/1.0"})
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    obs = _json.loads(resp.read()).get("observations", [])
+                data = {
+                    pd.Timestamp(o["date"]): float(o["value"])
+                    for o in obs
+                    if o.get("value") not in (".", None)
+                }
+                return pd.Series(data).sort_index()
+            except Exception:
+                return pd.Series(dtype=float)
+
+        def z_score_series(
+            series: pd.Series,
+            current,
+            higher_is_overvalued: bool = True,
+            years: int = 10,
+        ):
+            if series.empty or current is None:
+                return None, "N/A", "Insufficient data"
+            cutoff = pd.Timestamp.now() - pd.DateOffset(years=years)
+            hist = series[series.index >= cutoff].dropna()
+            if len(hist) < 10:
+                return None, "N/A", "Insufficient history"
+            mu, sigma = float(hist.mean()), float(hist.std())
+            if sigma < 1e-9:
+                return None, "NORMAL", ""
+            z = (current - mu) / sigma
+            return _classify(z, higher_is_overvalued, round(mu, 3), round(sigma, 3))
+
+        def bench_z(current, avg: float, std: float, higher_is_overvalued: bool = True):
+            if current is None:
+                return None, "N/A", "Data unavailable"
+            z = (current - avg) / std
+            return _classify(z, higher_is_overvalued, avg, std)
+
+        def _classify(z: float, higher_is_overvalued: bool, mu, sigma):
+            if higher_is_overvalued:
+                if z > 2.0:   return round(z, 2), "OVERVALUED",  f"★ EXTREME — {z:.1f}σ above avg"
+                if z > 1.0:   return round(z, 2), "OVERVALUED",  f"{z:.1f}σ above 10yr avg"
+                if z < -1.0:  return round(z, 2), "UNDERVALUED", f"{abs(z):.1f}σ below 10yr avg"
+            else:
+                if z < -2.0:  return round(z, 2), "OVERVALUED",  f"★ EXTREME — {abs(z):.1f}σ below avg"
+                if z < -1.0:  return round(z, 2), "OVERVALUED",  f"{abs(z):.1f}σ below avg (stretched)"
+                if z > 1.0:   return round(z, 2), "UNDERVALUED", f"{z:.1f}σ above avg (cheap)"
+            return round(z, 2), "NORMAL", ""
+
+        def row(name, category, value, unit, z, status, notes, avg=None, std=None, source=""):
+            return {
+                "metric": name, "category": category,
+                "value": round(value, 3) if value is not None else None,
+                "unit": unit,
+                "avg_10yr": round(avg, 3) if avg is not None else None,
+                "std_10yr": round(std, 3) if std is not None else None,
+                "z_score": z, "status": status, "notes": notes, "source": source,
+            }
+
+        metrics = []
+        warnings = []
+
+        # ── yfinance: SPY info ────────────────────────────────────────────────
+        spy_info: dict = {}
+        try:
+            spy_info = yf.Ticker("SPY").info or {}
+        except Exception as e:
+            warnings.append(f"SPY info: {e}")
+
+        spx_hist = pd.DataFrame()
+        try:
+            spx_hist = yf.download("^GSPC", period="3y", interval="1d",
+                                   auto_adjust=True, progress=False)
+        except Exception as e:
+            warnings.append(f"^GSPC: {e}")
+
+        vix_val = None
+        try:
+            vi = yf.Ticker("^VIX").info
+            vix_val = safe(vi.get("regularMarketPrice") or vi.get("previousClose"))
+        except Exception:
+            pass
+
+        # ── FRED series ───────────────────────────────────────────────────────
+        hy_spreads  = fred_series("BAMLH0A0HYM2")
+        dgs10       = fred_series("DGS10")
+        umcsent     = fred_series("UMCSENT")
+        payems      = fred_series("PAYEMS")
+        drtscilm    = fred_series("DRTSCILM")
+        nfci        = fred_series("NFCI")
+        will5000    = fred_series("WILL5000PR", lim=260)
+        gdp         = fred_series("GDP", lim=60)
+
+        # ── Derived values ────────────────────────────────────────────────────
+        trailing_pe    = safe(spy_info.get("trailingPE"))
+        forward_pe     = safe(spy_info.get("forwardPE"))
+        price_to_book  = safe(spy_info.get("priceToBook"))
+        price_to_sales = safe(spy_info.get("priceToSalesTrailing12Months"))
+        div_yield      = safe(spy_info.get("dividendYield"))
+        if div_yield and div_yield < 0.1:
+            div_yield = round(div_yield * 100, 3)
+
+        # Price vs 200D MA %
+        price_vs_200ma = None
+        if not spx_hist.empty and len(spx_hist) >= 200:
+            close = spx_hist["Close"].squeeze()
+            ma200 = float(close.rolling(200).mean().iloc[-1])
+            price = float(close.iloc[-1])
+            price_vs_200ma = round((price / ma200 - 1) * 100, 2)
+
+        y10_current = safe(dgs10.iloc[-1]) if not dgs10.empty else None
+
+        # Equity Risk Premium = earnings yield − 10Y yield
+        erp = None
+        if trailing_pe and trailing_pe > 0 and y10_current:
+            erp = round((1 / trailing_pe * 100) - y10_current, 2)
+
+        # Buffett Indicator
+        buffett = None
+        buffett_series = pd.Series(dtype=float)
+        if not will5000.empty and not gdp.empty:
+            try:
+                gdp_ffill = gdp.resample("W").ffill()
+                aligned = will5000.resample("W").last().dropna()
+                idx = aligned.index.intersection(gdp_ffill.index)
+                if len(idx) > 0:
+                    buffett_series = (aligned.reindex(idx) / gdp_ffill.reindex(idx) * 100).dropna()
+                    buffett = safe(buffett_series.iloc[-1])
+            except Exception as e:
+                warnings.append(f"Buffett: {e}")
+
+        # Payroll YoY %
+        payroll_yoy = None
+        payroll_yoy_s = pd.Series(dtype=float)
+        if not payems.empty and len(payems) >= 52:
+            try:
+                payroll_yoy_s = payems.pct_change(12).dropna() * 100
+                payroll_yoy = safe(payroll_yoy_s.iloc[-1])
+            except Exception:
+                pass
+
+        # Shiller CAPE approximation (trailing PE × 1.30 smoothing factor)
+        cape_approx = round(trailing_pe * 1.30, 1) if trailing_pe else None
+
+        # Profit margin via P/S and earnings
+        net_margin = None
+        try:
+            price = safe(spy_info.get("regularMarketPrice") or spy_info.get("previousClose"))
+            if price and price_to_sales and price_to_sales > 0 and trailing_pe and trailing_pe > 0:
+                rev_ps = price / price_to_sales
+                eps = price / trailing_pe
+                net_margin = round(eps / rev_ps * 100, 2) if rev_ps > 0 else None
+        except Exception:
+            pass
+
+        cutoff10 = pd.Timestamp.now() - pd.DateOffset(years=10)
+
+        # ── Helper to get mu/std from a FRED series ───────────────────────────
+        def ms(s: pd.Series, default_mu: float, default_std: float):
+            h = s[s.index >= cutoff10].dropna() if not s.empty else pd.Series(dtype=float)
+            if len(h) > 10:
+                return float(h.mean()), float(h.std())
+            return default_mu, default_std
+
+        # ── Build scorecard rows ──────────────────────────────────────────────
+
+        # 1. Trailing P/E
+        z, st, nt = bench_z(trailing_pe, avg=18.5, std=5.2)
+        metrics.append(row("Trailing P/E", "Valuation Multiples", trailing_pe, "x",
+                           z, st, nt, avg=18.5, std=5.2, source="yfinance SPY"))
+
+        # 2. Forward P/E
+        z, st, nt = bench_z(forward_pe, avg=15.8, std=3.8)
+        metrics.append(row("Forward P/E", "Valuation Multiples", forward_pe, "x",
+                           z, st, nt, avg=15.8, std=3.8, source="yfinance SPY"))
+
+        # 3. Price-to-Book
+        z, st, nt = bench_z(price_to_book, avg=2.9, std=0.8)
+        metrics.append(row("Price-to-Book", "Valuation Multiples", price_to_book, "x",
+                           z, st, nt, avg=2.9, std=0.8, source="yfinance SPY"))
+
+        # 4. Price-to-Sales
+        z, st, nt = bench_z(price_to_sales, avg=1.7, std=0.5)
+        metrics.append(row("Price-to-Sales", "Valuation Multiples", price_to_sales, "x",
+                           z, st, nt, avg=1.7, std=0.5, source="yfinance SPY"))
+
+        # 5. Dividend Yield (lower = expensive)
+        z, st, nt = bench_z(div_yield, avg=1.9, std=0.45, higher_is_overvalued=False)
+        metrics.append(row("Dividend Yield", "Valuation Multiples", div_yield, "%",
+                           z, st, nt, avg=1.9, std=0.45, source="yfinance SPY"))
+
+        # 6. Shiller CAPE est.
+        z, st, nt = bench_z(cape_approx, avg=17.0, std=7.0)
+        if cape_approx and cape_approx > 44:
+            nt = "★ ABOVE DOT-COM LEVELS"
+        elif cape_approx and cape_approx > 38:
+            nt = nt or "Approaching dot-com levels"
+        metrics.append(row("Shiller CAPE (est.)", "Valuation Multiples", cape_approx, "x",
+                           z, st, nt, avg=17.0, std=7.0, source="estimated (trailing PE × 1.3)"))
+
+        # 7. Equity Risk Premium (lower = expensive)
+        z, st, nt = bench_z(erp, avg=3.0, std=1.5, higher_is_overvalued=False)
+        if erp is not None and erp < 0:
+            nt = "★ NEGATIVE ERP — bonds yield more than equities"
+        metrics.append(row("Equity Risk Premium", "Valuation Multiples", erp, "%",
+                           z, st, nt, avg=3.0, std=1.5, source="calc: earnings yield − DGS10"))
+
+        # 8. Price vs 200D MA
+        z, st, nt = bench_z(price_vs_200ma, avg=2.0, std=9.0)
+        metrics.append(row("Price vs 200D MA", "Market Technicals", price_vs_200ma, "%",
+                           z, st, nt, avg=2.0, std=9.0, source="yfinance ^GSPC"))
+
+        # 9. VIX (lower = complacency)
+        z, st, nt = bench_z(vix_val, avg=18.0, std=7.0, higher_is_overvalued=False)
+        if vix_val and vix_val < 12:
+            nt = "★ EXTREME COMPLACENCY"
+        metrics.append(row("VIX", "Market Technicals", vix_val, "pts",
+                           z, st, nt, avg=18.0, std=7.0, source="yfinance ^VIX"))
+
+        # 10. HY Credit Spreads (lower spreads = complacency)
+        hy_curr = safe(hy_spreads.iloc[-1]) if not hy_spreads.empty else None
+        mu_hy, std_hy = ms(hy_spreads, 4.5, 1.8)
+        if not hy_spreads.empty and hy_curr is not None:
+            z, st, nt = z_score_series(hy_spreads, hy_curr, higher_is_overvalued=False)
+        else:
+            z, st, nt = bench_z(hy_curr, avg=mu_hy, std=std_hy, higher_is_overvalued=False)
+        metrics.append(row("HY Credit Spreads", "Credit & Macro", hy_curr, "%",
+                           z, st, nt, avg=round(mu_hy, 2), std=round(std_hy, 2),
+                           source="FRED BAMLH0A0HYM2"))
+
+        # 11. 10Y Treasury Yield
+        mu_y10, std_y10 = ms(dgs10, 2.5, 1.0)
+        if not dgs10.empty and y10_current is not None:
+            z, st, nt = z_score_series(dgs10, y10_current)
+        else:
+            z, st, nt = bench_z(y10_current, avg=mu_y10, std=std_y10)
+        metrics.append(row("10Y Treasury Yield", "Credit & Macro", y10_current, "%",
+                           z, st, nt, avg=round(mu_y10, 2), std=round(std_y10, 2),
+                           source="FRED DGS10"))
+
+        # 12. Market Cap / GDP (Buffett Indicator)
+        mu_b, std_b = ms(buffett_series, 100.0, 30.0)
+        if not buffett_series.empty and buffett is not None:
+            z, st, nt = z_score_series(buffett_series, buffett)
+        else:
+            z, st, nt = bench_z(buffett, avg=mu_b, std=std_b)
+        if buffett and buffett > 180:
+            nt = "★ ABOVE DOT-COM PEAK"
+        metrics.append(row("Market Cap / GDP", "Credit & Macro", buffett, "%",
+                           z, st, nt, avg=round(mu_b, 1), std=round(std_b, 1),
+                           source="FRED WILL5000PR/GDP"))
+
+        # 13. Consumer Confidence
+        cc_curr = safe(umcsent.iloc[-1]) if not umcsent.empty else None
+        mu_cc, std_cc = ms(umcsent, 86.0, 12.0)
+        if not umcsent.empty and cc_curr is not None:
+            z, st, nt = z_score_series(umcsent, cc_curr)
+        else:
+            z, st, nt = bench_z(cc_curr, avg=mu_cc, std=std_cc)
+        metrics.append(row("Consumer Confidence", "Sentiment", cc_curr, "idx",
+                           z, st, nt, avg=round(mu_cc, 1), std=round(std_cc, 1),
+                           source="FRED UMCSENT"))
+
+        # 14. Bank Lending Standards (tighter = negative = risk-off; loose = overvalued)
+        ls_curr = safe(drtscilm.iloc[-1]) if not drtscilm.empty else None
+        mu_ls, std_ls = ms(drtscilm, 5.0, 20.0)
+        if not drtscilm.empty and ls_curr is not None:
+            z, st, nt = z_score_series(drtscilm, ls_curr, higher_is_overvalued=False)
+        else:
+            z, st, nt = bench_z(ls_curr, avg=mu_ls, std=std_ls, higher_is_overvalued=False)
+        metrics.append(row("Bank Lending Standards", "Sentiment", ls_curr, "%",
+                           z, st, nt, avg=round(mu_ls, 1), std=round(std_ls, 1),
+                           source="FRED DRTSCILM"))
+
+        # 15. Nat'l Financial Conditions (negative = easy; lower = more accommodative)
+        nfci_curr = safe(nfci.iloc[-1]) if not nfci.empty else None
+        mu_nfci, std_nfci = ms(nfci, 0.0, 0.5)
+        if not nfci.empty and nfci_curr is not None:
+            z, st, nt = z_score_series(nfci, nfci_curr, higher_is_overvalued=False)
+        else:
+            z, st, nt = bench_z(nfci_curr, avg=mu_nfci, std=std_nfci, higher_is_overvalued=False)
+        metrics.append(row("Nat'l Financial Conditions", "Sentiment", nfci_curr, "idx",
+                           z, st, nt, avg=round(mu_nfci, 3), std=round(std_nfci, 3),
+                           source="FRED NFCI"))
+
+        # 16. Nonfarm Payrolls YoY %
+        mu_pay, std_pay = ms(payroll_yoy_s, 1.5, 1.2)
+        if not payroll_yoy_s.empty and payroll_yoy is not None:
+            z, st, nt = z_score_series(payroll_yoy_s, payroll_yoy)
+        else:
+            z, st, nt = bench_z(payroll_yoy, avg=mu_pay, std=std_pay)
+        metrics.append(row("Nonfarm Payrolls YoY", "Economic", payroll_yoy, "%",
+                           z, st, nt, avg=round(mu_pay, 2), std=round(std_pay, 2),
+                           source="FRED PAYEMS"))
+
+        # 17. S&P 500 Net Margin (higher = potentially stretched)
+        z, st, nt = bench_z(net_margin, avg=11.5, std=2.5)
+        if net_margin and net_margin > 15:
+            nt = "★ RECORD-HIGH MARGINS — reversion risk"
+        metrics.append(row("S&P 500 Net Margin", "Economic", net_margin, "%",
+                           z, st, nt, avg=11.5, std=2.5, source="yfinance SPY"))
+
+        # 18. Margin Debt (no free real-time API)
+        metrics.append(row("Margin Debt Trend", "Sentiment", None, "N/A",
+                           None, "N/A", "Manual input required (FINRA monthly)",
+                           source="FINRA"))
+
+        # 19. Bull/Bear Indicator (BofA proprietary)
+        metrics.append(row("Bull/Bear Indicator", "Sentiment", None, "N/A",
+                           None, "N/A", "Manual override — BofA proprietary",
+                           source="Manual"))
+
+        # ── Summary ───────────────────────────────────────────────────────────
+        statuses = [m["status"] for m in metrics]
+        n_ov = statuses.count("OVERVALUED")
+        n_nm = statuses.count("NORMAL")
+        n_uv = statuses.count("UNDERVALUED")
+        heat = "EXTREME" if n_ov >= 12 else "ELEVATED" if n_ov >= 8 else "MODERATE" if n_ov >= 5 else "LOW"
+
+        return {
+            "updated_at": pd.Timestamp.now().isoformat(),
+            "fred_available": bool(fred_key),
+            "warnings": warnings,
+            "summary": {
+                "overvalued": n_ov, "normal": n_nm, "undervalued": n_uv,
+                "na": statuses.count("N/A"),
+                "heat_level": heat, "total": len(metrics),
+            },
+            "metrics": metrics,
+        }
+
+    try:
+        result = await asyncio.to_thread(_build)
+        _scorecard_cache["data"] = result
+        _scorecard_cache["ts"] = now
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"scorecard build failed: {exc}") from exc
 
 
 @app.get("/macro/data")

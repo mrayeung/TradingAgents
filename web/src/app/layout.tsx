@@ -18,6 +18,7 @@ const NAV = [
   { href: "/portfolio/institutions/analytics", label: "📊 13F Analytics",   desc: "Cross-fund intelligence" },
   { href: "/portfolio/options",                label: "🎯 Options Action",  desc: "IV · trade ideas · flow" },
   { href: "/portfolio/macro",        label: "🌐 Macro Dashboard", desc: "Cross-asset regime view" },
+  { href: "/portfolio/scorecard",    label: "🎯 Valuation Score", desc: "S&P 500 BofA-style scorecard" },
   { href: "/portfolio/reports",      label: "📚 Reports",         desc: "Full report library" },
 ];
 

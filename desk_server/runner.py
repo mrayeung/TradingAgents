@@ -70,6 +70,7 @@ class RunHandle:
         self.done = False
         self.cancelled = False
         self.status = "queued"   # transitions to "warming" when executor picks it up
+        self.error_message: str | None = None   # set on fatal error for the state endpoint
         self.updated = asyncio.Event()
 
     # -- loop-thread only --
@@ -78,6 +79,8 @@ class RunHandle:
         self.events.append(build_event(self.run_id, self.seq, event_type, fields))
         if event_type in ("warming", "started", "done", "error", "cancelled"):
             self.status = event_type
+        if event_type == "error":
+            self.error_message = fields.get("message") or fields.get("detail") or "Unknown error"
         self.updated.set()
 
     def _finish(self) -> None:

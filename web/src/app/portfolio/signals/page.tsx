@@ -74,6 +74,62 @@ function elapsed(ms: number) {
 
 // ─── New Analysis Panel ───────────────────────────────────────────────────────
 
+// ─── LLM provider presets ─────────────────────────────────────────────────────
+
+const PROVIDER_PRESETS = [
+  {
+    id: "openrouter-gemini",
+    label: "OpenRouter · Gemini 2.5",
+    llm_provider: "openrouter",
+    deep_think_llm: "google/gemini-2.5-pro",
+    quick_think_llm: "google/gemini-2.5-flash",
+    backend_url: "https://openrouter.ai/api/v1",
+    key_env: "OPENROUTER_API_KEY",
+  },
+  {
+    id: "openrouter-claude",
+    label: "OpenRouter · Claude Sonnet",
+    llm_provider: "openrouter",
+    deep_think_llm: "anthropic/claude-sonnet-4-5",
+    quick_think_llm: "anthropic/claude-haiku-4-5",
+    backend_url: "https://openrouter.ai/api/v1",
+    key_env: "OPENROUTER_API_KEY",
+  },
+  {
+    id: "openrouter-deepseek",
+    label: "OpenRouter · DeepSeek V4",
+    llm_provider: "openrouter",
+    deep_think_llm: "deepseek/deepseek-v4-pro",
+    quick_think_llm: "deepseek/deepseek-v4-flash",
+    backend_url: "https://openrouter.ai/api/v1",
+    key_env: "OPENROUTER_API_KEY",
+  },
+  {
+    id: "openai",
+    label: "OpenAI · GPT-5",
+    llm_provider: "openai",
+    deep_think_llm: "gpt-5.5",
+    quick_think_llm: "gpt-5.4-mini",
+    backend_url: null,
+    key_env: "OPENAI_API_KEY",
+  },
+] as const;
+
+type PresetId = typeof PROVIDER_PRESETS[number]["id"];
+
+const MAX_TICKERS = 6;
+
+// Parse raw input → deduplicated uppercase tickers, capped at MAX_TICKERS
+function parseTickers(raw: string): string[] {
+  return [
+    ...new Set(
+      raw.split(/[,\s]+/)
+        .map(t => t.trim().toUpperCase())
+        .filter(t => t.length > 0)
+    ),
+  ].slice(0, MAX_TICKERS);
+}
+
 function NewAnalysisPanel({
   onStarted,
   onClose,
@@ -81,11 +137,22 @@ function NewAnalysisPanel({
   onStarted: (run: ActiveRun) => void;
   onClose: () => void;
 }) {
-  const [ticker, setTicker] = useState("");
+  const [tickerInput, setTickerInput] = useState("");
   const [tradeDate, setTradeDate] = useState(new Date().toISOString().split("T")[0]);
   const [selectedAnalysts, setSelectedAnalysts] = useState(ALL_ANALYSTS.map(a => a.key));
+  const [presetId, setPresetId] = useState<PresetId>("openrouter-deepseek");
+  const [apiKey, setApiKey] = useState("");
   const [loading, setLoading] = useState(false);
+  const [startedCount, setStartedCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
+
+  const preset = PROVIDER_PRESETS.find(p => p.id === presetId) ?? PROVIDER_PRESETS[0];
+  const tickers = parseTickers(tickerInput);
+  const atMax = tickers.length >= MAX_TICKERS;
+
+  const removeTicker = (t: string) => {
+    setTickerInput(tickers.filter(x => x !== t).join(", "));
+  };
 
   const toggleAnalyst = (key: string) => {
     setSelectedAnalysts(prev =>
@@ -93,23 +160,27 @@ function NewAnalysisPanel({
     );
   };
 
+  // Queue all tickers as separate runs — backend serialises via max_workers=1
   const handleStart = async () => {
-    const t = ticker.trim().toUpperCase();
-    if (!t) return;
+    if (tickers.length === 0) return;
     setLoading(true);
+    setStartedCount(0);
     setError(null);
+    const baseConfig = {
+      trade_date: tradeDate,
+      analysts: selectedAnalysts,
+      llm_provider: preset.llm_provider,
+      deep_think_llm: preset.deep_think_llm,
+      quick_think_llm: preset.quick_think_llm,
+      ...(preset.backend_url && { backend_url: preset.backend_url }),
+      ...(apiKey.trim() && { keys: { [preset.key_env]: apiKey.trim() } }),
+    };
     try {
-      const res = await api.startRun({
-        ticker: t,
-        trade_date: tradeDate,
-        analysts: selectedAnalysts,
-      });
-      onStarted({
-        runId: res.run_id,
-        ticker: t,
-        status: "pending",
-        startedAt: Date.now(),
-      });
+      for (const t of tickers) {
+        const res = await api.startRun({ ...baseConfig, ticker: t });
+        onStarted({ runId: res.run_id, ticker: t, status: "pending", startedAt: Date.now() });
+        setStartedCount(n => n + 1);
+      }
       onClose();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
@@ -126,17 +197,48 @@ function NewAnalysisPanel({
       </div>
 
       <div className="grid grid-cols-2 gap-4">
+        {/* ── Multi-ticker input ── */}
         <div>
-          <label className="text-xs text-slate-400 block mb-1.5">Ticker</label>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="text-xs text-slate-400">Tickers</label>
+            <span className={clsx(
+              "text-[10px] font-mono font-bold tabular-nums",
+              atMax ? "text-amber-400" : tickers.length > 0 ? "text-sky-400" : "text-slate-600"
+            )}>
+              {tickers.length} / {MAX_TICKERS}
+            </span>
+          </div>
           <input
-            value={ticker}
-            onChange={e => setTicker(e.target.value.toUpperCase())}
+            value={tickerInput}
+            onChange={e => {
+              const val = e.target.value.toUpperCase();
+              if (parseTickers(val).length <= MAX_TICKERS) setTickerInput(val);
+            }}
             onKeyDown={e => e.key === "Enter" && handleStart()}
-            placeholder="AAPL"
+            placeholder="AAPL, MSFT, NVDA, GOOGL …"
             autoFocus
-            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-slate-100 font-mono text-sm focus:outline-none focus:border-sky-500 uppercase"
+            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-slate-100 font-mono text-sm focus:outline-none focus:border-sky-500 uppercase placeholder:normal-case placeholder:text-slate-600"
           />
+          <p className="text-[10px] text-slate-600 mt-1">
+            Comma-separated · max {MAX_TICKERS} · runs queue serially (~5–10 min each)
+          </p>
+          {/* Parsed ticker pills */}
+          {tickers.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {tickers.map(t => (
+                <span key={t}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-sky-900/50 border border-sky-700/50 rounded text-xs font-mono text-sky-300"
+                >
+                  {t}
+                  <button onClick={() => removeTicker(t)}
+                    className="text-sky-600 hover:text-sky-300 leading-none ml-0.5" title={`Remove ${t}`}
+                  >×</button>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
+
         <div>
           <label className="text-xs text-slate-400 block mb-1.5">Trade Date</label>
           <input
@@ -168,6 +270,40 @@ function NewAnalysisPanel({
         </div>
       </div>
 
+      {/* ── LLM Provider ── */}
+      <div className="space-y-2">
+        <label className="text-xs text-slate-400 block">LLM Provider</label>
+        <div className="grid grid-cols-2 gap-2">
+          {PROVIDER_PRESETS.map(p => (
+            <button
+              key={p.id}
+              onClick={() => setPresetId(p.id)}
+              className={clsx(
+                "px-3 py-2 rounded-lg text-xs font-medium text-left transition-colors border",
+                presetId === p.id
+                  ? "bg-violet-900/40 border-violet-600/60 text-violet-300"
+                  : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
+              )}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-slate-600 font-mono shrink-0">{preset.key_env}</span>
+          <input
+            value={apiKey}
+            onChange={e => setApiKey(e.target.value)}
+            placeholder="paste key here (or leave blank to use server env)"
+            type="password"
+            className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-slate-300 font-mono text-xs focus:outline-none focus:border-violet-500 placeholder:text-slate-600"
+          />
+        </div>
+        <p className="text-[10px] text-slate-600">
+          Key is sent once to the server for this run only and never stored. Leave blank if already set in server env.
+        </p>
+      </div>
+
       {/* ── Debate model — server-configured, shown read-only ── */}
       <div className="flex items-center gap-2 px-3 py-2 bg-slate-800/40 border border-slate-700/50 rounded-lg">
         <span className="text-xs text-slate-500">⚡ Debate model</span>
@@ -181,15 +317,26 @@ function NewAnalysisPanel({
         <div className="text-red-400 text-xs bg-red-900/20 border border-red-800/40 rounded p-2">{error}</div>
       )}
 
-      <button
-        onClick={handleStart}
-        disabled={loading || !ticker.trim()}
-        className="px-5 py-2 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
-      >
-        {loading ? "Starting…" : "▶ Start Analysis"}
-      </button>
+      <div className="flex items-center gap-3">
+        <button
+          onClick={handleStart}
+          disabled={loading || tickers.length === 0}
+          className="px-5 py-2 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
+        >
+          {loading
+            ? `Queuing ${startedCount}/${tickers.length}…`
+            : tickers.length > 1
+              ? `▶ Start ${tickers.length} Analyses`
+              : "▶ Start Analysis"}
+        </button>
+        {tickers.length > 1 && !loading && (
+          <p className="text-[10px] text-slate-500">
+            Est. {tickers.length * 5}–{tickers.length * 10} min total · runs are serialised
+          </p>
+        )}
+      </div>
       <p className="text-xs text-slate-500">
-        Runs typically take 5–10 minutes. Results appear automatically when done.
+        Each run takes ~5–10 min. Results appear in the signals table as each completes.
       </p>
     </div>
   );
@@ -247,7 +394,7 @@ function ActiveRunsBanner({
                run.status === "warming"   ? "Warming up…" :
                run.status === "started"   ? "Analysing…" :
                run.status === "done"      ? "Complete — results updated" :
-               run.status === "error"     ? "Run failed" :
+               run.status === "error"     ? `Run failed${run.errorMessage ? `: ${run.errorMessage}` : ""}` :
                run.status === "cancelled" ? "Cancelled" : run.status}
             </span>
 
@@ -310,7 +457,11 @@ export default function SignalsPage() {
             const res = await fetch(`/api/runs/${run.runId}/state`);
             if (!res.ok) return run;
             const state = await res.json();
-            return { ...run, status: state.status as ActiveRun["status"] };
+            return {
+              ...run,
+              status: state.status as ActiveRun["status"],
+              ...(state.error_message && { errorMessage: state.error_message }),
+            };
           } catch {
             return run;
           }

@@ -33,8 +33,9 @@ export interface SavedPortfolio {
 export interface ActiveRun {
   runId: string;
   ticker: string;
-  status: "warming" | "started" | "done" | "error" | "cancelled" | "pending";
+  status: "queued" | "warming" | "started" | "done" | "error" | "cancelled" | "pending";
   startedAt: number;
+  errorMessage?: string;   // populated on status === "error"
 }
 
 interface PortfolioStore {
