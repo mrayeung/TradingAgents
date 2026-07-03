@@ -105,6 +105,15 @@ const PROVIDER_PRESETS = [
     key_env: "OPENROUTER_API_KEY",
   },
   {
+    id: "openrouter-glm",
+    label: "OpenRouter · GLM-Z1",
+    llm_provider: "openrouter",
+    deep_think_llm: "thudm/glm-z1-32b",
+    quick_think_llm: "deepseek/deepseek-v4-flash",
+    backend_url: "https://openrouter.ai/api/v1",
+    key_env: "OPENROUTER_API_KEY",
+  },
+  {
     id: "openai",
     label: "OpenAI · GPT-5",
     llm_provider: "openai",
@@ -273,7 +282,7 @@ function NewAnalysisPanel({
       {/* ── LLM Provider ── */}
       <div className="space-y-2">
         <label className="text-xs text-slate-400 block">LLM Provider</label>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           {PROVIDER_PRESETS.map(p => (
             <button
               key={p.id}
