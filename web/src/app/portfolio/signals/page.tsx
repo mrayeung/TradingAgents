@@ -106,9 +106,9 @@ const PROVIDER_PRESETS = [
   },
   {
     id: "openrouter-glm",
-    label: "OpenRouter · GLM-Z1",
+    label: "OpenRouter · GLM-5.2",
     llm_provider: "openrouter",
-    deep_think_llm: "thudm/glm-z1-32b",
+    deep_think_llm: "z-ai/glm-5.2",
     quick_think_llm: "deepseek/deepseek-v4-flash",
     backend_url: "https://openrouter.ai/api/v1",
     key_env: "OPENROUTER_API_KEY",
