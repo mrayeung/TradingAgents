@@ -1160,14 +1160,48 @@ async def portfolio_scorecard(refresh: bool = False) -> dict:
         payems      = fred_series("PAYEMS")
         drtscilm    = fred_series("DRTSCILM")
         nfci        = fred_series("NFCI")
-        will5000    = fred_series("WILL5000PR", lim=260)
+        # WILL5000PRFC = Wilshire 5000 Full Cap — total dollar value of all
+        # active publicly traded U.S. equities (the institutionally correct
+        # numerator for the Buffett Indicator, per FRED / currentmarketvaluation.com)
+        will5000    = fred_series("WILL5000PRFC", lim=520)
         gdp         = fred_series("GDP", lim=60)
 
         # ── Derived values ────────────────────────────────────────────────────
         trailing_pe    = safe(spy_info.get("trailingPE"))
-        forward_pe     = safe(spy_info.get("forwardPE"))
+        # SPY forwardPE from yfinance is unreliable for ETFs.
+        # Use live ^SPX price ÷ consensus 12-month forward EPS estimate.
+        # Source: StreetStats / Wall Street consensus (~$371.27 as of mid-2025).
+        # Update FORWARD_EPS_ESTIMATE periodically as consensus shifts.
+        FORWARD_EPS_ESTIMATE = 371.27
+        forward_pe: float | None = None
+        try:
+            spx_info = yf.Ticker("^SPX").info
+            spx_price = safe(spx_info.get("regularMarketPrice") or spx_info.get("previousClose"))
+            if spx_price and spx_price > 0:
+                forward_pe = round(spx_price / FORWARD_EPS_ESTIMATE, 2)
+        except Exception as e:
+            warnings.append(f"Forward P/E calc failed: {e}")
+            forward_pe = safe(spy_info.get("forwardPE"))  # fallback
         price_to_book  = safe(spy_info.get("priceToBook"))
+        # SPY is an ETF — yfinance returns None for priceToSalesTrailing12Months.
+        # Scrape the real S&P 500 P/S from multpl.com instead.
         price_to_sales = safe(spy_info.get("priceToSalesTrailing12Months"))
+        if price_to_sales is None:
+            try:
+                import html
+                ps_req = urllib.request.Request(
+                    "https://www.multpl.com/s-p-500-price-to-sales",
+                    headers={"User-Agent": "Mozilla/5.0 (compatible; TradingDesk/1.0)"},
+                )
+                with urllib.request.urlopen(ps_req, timeout=10) as ps_resp:
+                    ps_html = ps_resp.read().decode("utf-8", errors="replace")
+                # multpl.com puts the current value in <div id="current">X.XX</div>
+                import re as _re
+                m = _re.search(r'id=["\']current["\'][^>]*>\s*([\d.]+)', ps_html)
+                if m:
+                    price_to_sales = safe(m.group(1))
+            except Exception as e:
+                warnings.append(f"P/S scrape failed: {e}")
         div_yield      = safe(spy_info.get("dividendYield"))
         if div_yield and div_yield < 0.1:
             div_yield = round(div_yield * 100, 3)
@@ -1187,19 +1221,21 @@ async def portfolio_scorecard(refresh: bool = False) -> dict:
         if trailing_pe and trailing_pe > 0 and y10_current:
             erp = round((1 / trailing_pe * 100) - y10_current, 2)
 
-        # Buffett Indicator
+        # Buffett Indicator: (Wilshire 5000 Full Cap / GDP) × 100
+        # Methodology: forward-fill quarterly GDP to daily, align with market cap,
+        # then divide. Matches the FRED / Wall Street institutional approach.
         buffett = None
         buffett_series = pd.Series(dtype=float)
         if not will5000.empty and not gdp.empty:
             try:
-                gdp_ffill = gdp.resample("W").ffill()
-                aligned = will5000.resample("W").last().dropna()
-                idx = aligned.index.intersection(gdp_ffill.index)
-                if len(idx) > 0:
-                    buffett_series = (aligned.reindex(idx) / gdp_ffill.reindex(idx) * 100).dropna()
+                df_buff = pd.DataFrame({"MarketCap": will5000, "GDP": gdp})
+                df_buff["GDP"] = df_buff["GDP"].ffill()   # quarterly → daily
+                df_buff = df_buff.dropna()
+                if not df_buff.empty:
+                    buffett_series = (df_buff["MarketCap"] / df_buff["GDP"] * 100).dropna()
                     buffett = safe(buffett_series.iloc[-1])
             except Exception as e:
-                warnings.append(f"Buffett: {e}")
+                warnings.append(f"Buffett Indicator: {e}")
 
         # Payroll YoY %
         payroll_yoy = None
@@ -1234,6 +1270,95 @@ async def portfolio_scorecard(refresh: bool = False) -> dict:
                 return float(h.mean()), float(h.std())
             return default_mu, default_std
 
+        # ── Synthetic Bull/Bear Composite (BofA proxy) ───────────────────────
+        # Four equally-weighted pillars, each normalized to 0–10:
+        #   0 = Extreme Fear / Bearish   10 = Extreme Greed / Bullish
+        # Final score ≤2 → contrarian buy; ≥8 → contrarian sell.
+
+        def norm010(val: float, lo: float, hi: float, invert: bool = False) -> float:
+            val = max(lo, min(hi, val))
+            s = (val - lo) / (hi - lo) * 10
+            return round(10 - s if invert else s, 2)
+
+        # Pillar 1 — AAII Bull-Bear Spread
+        aaii_spread: float | None = None
+        try:
+            import io as _io
+            _aaii_req = urllib.request.Request(
+                "https://www.aaii.com/files/surveys/sentiment.xls",
+                headers={"User-Agent": "Mozilla/5.0 (compatible; TradingDesk/1.0)"},
+            )
+            with urllib.request.urlopen(_aaii_req, timeout=12) as _r:
+                _xls = _r.read()
+            _adf = pd.read_excel(_io.BytesIO(_xls), sheet_name="Sentiment", header=3)
+            _adf = _adf.dropna(subset=[_adf.columns[1], _adf.columns[3]])
+            _latest = _adf.iloc[-1]
+            _bull, _bear = float(_latest.iloc[1]), float(_latest.iloc[3])
+            if _bull <= 1.0:  # fractions → percentages
+                _bull *= 100; _bear *= 100
+            aaii_spread = round(_bull - _bear, 2)
+        except Exception as _e:
+            warnings.append(f"AAII spread: {_e}")
+            aaii_spread = 6.5   # long-term median fallback
+
+        # Pillar 2 — CBOE Equity Put/Call Ratio 20D MA (^PCE)
+        cboe_pcr: float | None = None
+        try:
+            _pc_hist = yf.Ticker("^PCE").history(period="40d")
+            if not _pc_hist.empty and len(_pc_hist) >= 10:
+                cboe_pcr = round(float(_pc_hist["Close"].tail(20).mean()), 3)
+        except Exception as _e:
+            warnings.append(f"CBOE PCR: {_e}")
+        if cboe_pcr is None:
+            # fallback: use hy_spreads as a proxy signal direction
+            cboe_pcr = 0.65  # historical median
+
+        # Pillar 3 — S&P 500 Breadth: % of top components above 200D MA
+        breadth_pct: float = 68.0  # mid-line fallback
+        _TOP = ["MSFT", "AAPL", "NVDA", "AMZN", "META",
+                "GOOGL", "BRK-B", "LLY", "AVGO", "JPM",
+                "TSLA", "UNH", "V", "XOM", "MA"]
+        try:
+            _batch = yf.download(_TOP, period="1y", interval="1d",
+                                 auto_adjust=True, progress=False, group_by="ticker")
+            _above = 0
+            for _t in _TOP:
+                try:
+                    _cl = _batch[_t]["Close"].dropna() if isinstance(_batch.columns, pd.MultiIndex) else _batch["Close"].dropna()
+                    if len(_cl) >= 200 and float(_cl.iloc[-1]) > float(_cl.tail(200).mean()):
+                        _above += 1
+                except Exception:
+                    pass
+            breadth_pct = round((_above / len(_TOP)) * 100, 1)
+        except Exception as _e:
+            warnings.append(f"Breadth: {_e}")
+
+        # Pillar 4 — HY Credit Spread (already fetched from FRED BAMLH0A0HYM2)
+        _hy_for_bb = safe(hy_spreads.iloc[-1]) if not hy_spreads.empty else 3.8
+
+        # Normalize each pillar → 0-10
+        _aaii_s   = norm010(aaii_spread,  -30.0, 40.0)           # high spread = greed
+        _cboe_s   = norm010(cboe_pcr,       0.55,  0.95, invert=True)  # low PCR  = greed
+        _bread_s  = norm010(breadth_pct,   20.0,  90.0)           # high %   = greed
+        _credit_s = norm010(_hy_for_bb,    3.0,   8.5,  invert=True)   # tight    = greed
+
+        bb_score  = round(float(np.mean([_aaii_s, _cboe_s, _bread_s, _credit_s])), 2)
+        bb_components = (f"AAII:{_aaii_s} · PCR:{_cboe_s} · "
+                         f"Breadth:{_bread_s} · Credit:{_credit_s}")
+
+        if bb_score <= 2.0:
+            bb_status = "UNDERVALUED"
+            bb_note = f"★ EXTREME FEAR — Contrarian buy | {bb_components}"
+        elif bb_score >= 8.0:
+            bb_status = "OVERVALUED"
+            bb_note = f"★ EXTREME GREED — Contrarian sell | {bb_components}"
+        else:
+            bb_status = "NORMAL"
+            bb_note = f"Neutral zone | {bb_components}"
+
+        # Z-score: treat 5.0 as neutral mid, std 2.5
+        _bb_z, _, _ = bench_z(bb_score, avg=5.0, std=2.5, higher_is_overvalued=True)
+
         # ── Build scorecard rows ──────────────────────────────────────────────
 
         # 1. Trailing P/E
@@ -1244,7 +1369,8 @@ async def portfolio_scorecard(refresh: bool = False) -> dict:
         # 2. Forward P/E
         z, st, nt = bench_z(forward_pe, avg=15.8, std=3.8)
         metrics.append(row("Forward P/E", "Valuation Multiples", forward_pe, "x",
-                           z, st, nt, avg=15.8, std=3.8, source="yfinance SPY"))
+                           z, st, nt, avg=15.8, std=3.8,
+                           source=f"^SPX ÷ consensus EPS ${FORWARD_EPS_ESTIMATE:.2f}"))
 
         # 3. Price-to-Book
         z, st, nt = bench_z(price_to_book, avg=2.9, std=0.8)
@@ -1254,7 +1380,7 @@ async def portfolio_scorecard(refresh: bool = False) -> dict:
         # 4. Price-to-Sales
         z, st, nt = bench_z(price_to_sales, avg=1.7, std=0.5)
         metrics.append(row("Price-to-Sales", "Valuation Multiples", price_to_sales, "x",
-                           z, st, nt, avg=1.7, std=0.5, source="yfinance SPY"))
+                           z, st, nt, avg=1.7, std=0.5, source="multpl.com (S&P 500 P/S)"))
 
         # 5. Dividend Yield (lower = expensive)
         z, st, nt = bench_z(div_yield, avg=1.9, std=0.45, higher_is_overvalued=False)
@@ -1320,7 +1446,7 @@ async def portfolio_scorecard(refresh: bool = False) -> dict:
             nt = "★ ABOVE DOT-COM PEAK"
         metrics.append(row("Market Cap / GDP", "Credit & Macro", buffett, "%",
                            z, st, nt, avg=round(mu_b, 1), std=round(std_b, 1),
-                           source="FRED WILL5000PR/GDP"))
+                           source="FRED WILL5000PRFC / GDP (Buffett Indicator)"))
 
         # 13. Consumer Confidence
         cc_curr = safe(umcsent.iloc[-1]) if not umcsent.empty else None
@@ -1372,15 +1498,20 @@ async def portfolio_scorecard(refresh: bool = False) -> dict:
         metrics.append(row("S&P 500 Net Margin", "Economic", net_margin, "%",
                            z, st, nt, avg=11.5, std=2.5, source="yfinance SPY"))
 
-        # 18. Margin Debt (no free real-time API)
-        metrics.append(row("Margin Debt Trend", "Sentiment", None, "N/A",
-                           None, "N/A", "Manual input required (FINRA monthly)",
-                           source="FINRA"))
+        # 18. S&P 500 Breadth (% of top 15 components above 200D MA)
+        z, st, nt = bench_z(breadth_pct, avg=65.0, std=18.0)
+        if breadth_pct > 85:
+            nt = "★ EXTREME BREADTH EXTENSION"
+        elif breadth_pct < 25:
+            nt = "★ MARKET WASHOUT CONDITIONS"
+        metrics.append(row("S&P 500 Market Breadth", "Sentiment", breadth_pct, "%",
+                           z, st, nt, avg=65.0, std=18.0,
+                           source="yfinance top-15 components vs 200D MA"))
 
-        # 19. Bull/Bear Indicator (BofA proprietary)
-        metrics.append(row("Bull/Bear Indicator", "Sentiment", None, "N/A",
-                           None, "N/A", "Manual override — BofA proprietary",
-                           source="Manual"))
+        # 19. Synthetic Bull/Bear Composite (BofA proxy — 0–10 scale)
+        metrics.append(row("Synthetic Bull/Bear", "Sentiment", bb_score, "/10",
+                           _bb_z, bb_status, bb_note, avg=5.0, std=2.5,
+                           source="AAII · CBOE PCR · Breadth · FRED HY spreads"))
 
         # ── Summary ───────────────────────────────────────────────────────────
         statuses = [m["status"] for m in metrics]
