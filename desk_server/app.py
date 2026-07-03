@@ -1311,26 +1311,35 @@ async def portfolio_scorecard(refresh: bool = False) -> dict:
             s = (val - lo) / (hi - lo) * 10
             return round(10 - s if invert else s, 2)
 
-        # Pillar 1 — AAII Bull-Bear Spread
-        aaii_spread: float | None = None
+        # Pillar 1 — CNN Fear & Greed Index (0–100; public JSON, no key needed)
+        # Replaces AAII XLS which returns HTTP 403 for programmatic access.
+        # F&G is a 7-component composite: price momentum, strength, breadth,
+        # put/call ratio, VIX, safe-haven demand, and junk-bond demand.
+        # 0 = Extreme Fear (contrarian buy)  ·  100 = Extreme Greed (contrarian sell)
+        fg_score: float = 50.0  # neutral fallback (overridden by CNN or VIX proxy below)
         try:
-            import io as _io
-            _aaii_req = urllib.request.Request(
-                "https://www.aaii.com/files/surveys/sentiment.xls",
-                headers={"User-Agent": "Mozilla/5.0 (compatible; TradingDesk/1.0)"},
+            _fg_req = urllib.request.Request(
+                "https://production.dataviz.cnn.io/index/fearandgreed/graphdata",
+                headers={
+                    "User-Agent": "Mozilla/5.0 (compatible; TradingDesk/1.0)",
+                    "Accept": "application/json",
+                    "Referer": "https://edition.cnn.com/markets/fear-and-greed",
+                },
             )
-            with urllib.request.urlopen(_aaii_req, timeout=12) as _r:
-                _xls = _r.read()
-            _adf = pd.read_excel(_io.BytesIO(_xls), sheet_name="Sentiment", header=3)
-            _adf = _adf.dropna(subset=[_adf.columns[1], _adf.columns[3]])
-            _latest = _adf.iloc[-1]
-            _bull, _bear = float(_latest.iloc[1]), float(_latest.iloc[3])
-            if _bull <= 1.0:  # fractions → percentages
-                _bull *= 100; _bear *= 100
-            aaii_spread = round(_bull - _bear, 2)
+            with urllib.request.urlopen(_fg_req, timeout=10) as _fr:
+                _fg_data = _json.loads(_fr.read())
+            # Structure: {"fear_and_greed": {"score": float, "rating": str, ...}, ...}
+            fg_score = float(_fg_data["fear_and_greed"]["score"])
         except Exception as _e:
-            warnings.append(f"AAII spread: {_e}")
-            aaii_spread = 6.5   # long-term median fallback
+            warnings.append(f"CNN Fear & Greed: {_e}")
+            # Fallback: derive F&G proxy from VIX (already available via yfinance)
+            # VIX 10 → score ~90, VIX 20 → score ~60, VIX 30 → score ~30, VIX 40+ → score ~0
+            try:
+                _vix_now = float(yf.Ticker("^VIX").info.get("regularMarketPrice") or 20)
+                fg_score = round(max(0.0, min(100.0, 100.0 - (_vix_now - 10.0) * 3.0)), 1)
+                warnings.append(f"F&G fallback via VIX={_vix_now:.1f} → score={fg_score}")
+            except Exception:
+                pass  # keep fg_score = 50.0 neutral
 
         # Pillar 2 — CBOE Equity Put/Call Ratio 20D MA (^PCE)
         cboe_pcr: float | None = None
@@ -1368,24 +1377,24 @@ async def portfolio_scorecard(refresh: bool = False) -> dict:
         _hy_for_bb = safe(hy_spreads.iloc[-1]) if not hy_spreads.empty else 3.8
 
         # Normalize each pillar → 0-10
-        _aaii_s   = norm010(aaii_spread,  -30.0, 40.0)           # high spread = greed
+        _fg_s     = norm010(fg_score,       0.0, 100.0)                 # high = greed
         _cboe_s   = norm010(cboe_pcr,       0.55,  0.95, invert=True)  # low PCR  = greed
-        _bread_s  = norm010(breadth_pct,   20.0,  90.0)           # high %   = greed
+        _bread_s  = norm010(breadth_pct,   20.0,  90.0)                 # high %   = greed
         _credit_s = norm010(_hy_for_bb,    3.0,   8.5,  invert=True)   # tight    = greed
 
-        bb_score  = round(float(np.mean([_aaii_s, _cboe_s, _bread_s, _credit_s])), 2)
-        bb_components = (f"AAII:{_aaii_s} · PCR:{_cboe_s} · "
+        bb_score  = round(float(np.mean([_fg_s, _cboe_s, _bread_s, _credit_s])), 2)
+        bb_components = (f"F&G:{_fg_s} · PCR:{_cboe_s} · "
                          f"Breadth:{_bread_s} · Credit:{_credit_s}")
 
         if bb_score <= 2.0:
             bb_status = "UNDERVALUED"
-            bb_note = f"★ EXTREME FEAR — Contrarian buy | {bb_components}"
+            bb_note = f"★ EXTREME FEAR — Contrarian buy | fg_raw:{round(fg_score,1)} | {bb_components}"
         elif bb_score >= 8.0:
             bb_status = "OVERVALUED"
-            bb_note = f"★ EXTREME GREED — Contrarian sell | {bb_components}"
+            bb_note = f"★ EXTREME GREED — Contrarian sell | fg_raw:{round(fg_score,1)} | {bb_components}"
         else:
             bb_status = "NORMAL"
-            bb_note = f"Neutral zone | {bb_components}"
+            bb_note = f"Neutral zone | fg_raw:{round(fg_score,1)} | {bb_components}"
 
         # Z-score: treat 5.0 as neutral mid, std 2.5
         _bb_z, _, _ = bench_z(bb_score, avg=5.0, std=2.5, higher_is_overvalued=True)
