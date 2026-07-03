@@ -1189,8 +1189,13 @@ async def portfolio_scorecard(refresh: bool = False) -> dict:
         payems      = fred_series("PAYEMS")
         drtscilm    = fred_series("DRTSCILM")
         nfci        = fred_series("NFCI")
-        cc_delinq   = fred_series("DRCCLACBS")    # Credit card delinquency rate (quarterly)
-        mort_delinq = fred_series("DRSFRMACBN")   # Mortgage delinquency rate (quarterly)
+        cc_delinq   = fred_series("DRCCLACBS")       # Credit card delinquency rate (quarterly)
+        mort_delinq = fred_series("DRSFRMACBN")     # Mortgage delinquency rate (quarterly)
+        auto_delinq = fred_series("M09086USM156NNBR")  # Auto direct loans delinquent (monthly)
+        # Commercial side — lagging / coincident / leading indicators
+        cre_delinq  = fred_series("DRREACBN")    # CRE proxy: Delinquency Rate, Real Estate Loans, All Commercial Banks
+        ci_delinq   = fred_series("DRBLACBS")    # C&I: Delinquency Rate, Business Loans, All Commercial Banks
+        smb_tight   = fred_series("DRTSCLNM")    # SMB leading: Net % Banks Tightening C&I Standards to Small Firms (SLOOS)
         # WILL5000PRFC = Wilshire 5000 Full Cap — total dollar value of all
         # active publicly traded U.S. equities (the institutionally correct
         # numerator for the Buffett Indicator, per FRED / currentmarketvaluation.com)
@@ -1570,6 +1575,72 @@ async def portfolio_scorecard(refresh: bool = False) -> dict:
         metrics.append(row("Mortgage Delinquency", "Consumer Stress", mort_curr, "%",
                            z, st, nt, avg=round(mu_mort, 2), std=round(std_mort, 2),
                            source="FRED DRSFRMACBN (quarterly)"))
+
+        # 22. Auto Loan Delinquency (FRED M09086USM156NNBR — monthly, $ millions)
+        # Rising auto delinquencies signal consumer credit stress
+        auto_curr = safe(auto_delinq.iloc[-1]) if not auto_delinq.empty else None
+        mu_auto, std_auto = ms(auto_delinq, 3500.0, 800.0)
+        if not auto_delinq.empty and auto_curr is not None:
+            z, st, nt = z_score_series(auto_delinq, auto_curr, higher_is_overvalued=True)
+        else:
+            z, st, nt = bench_z(auto_curr, avg=mu_auto, std=std_auto, higher_is_overvalued=True)
+        if auto_curr and mu_auto > 0 and auto_curr > mu_auto * 1.3:
+            nt = "★ ELEVATED — auto loan stress building"
+        metrics.append(row("Auto Loan Delinquency", "Consumer Stress", auto_curr, "$M",
+                           z, st, nt, avg=round(mu_auto, 0) if mu_auto else None,
+                           std=round(std_auto, 0) if std_auto else None,
+                           source="FRED M09086USM156NNBR (monthly)"))
+
+        # 23. CRE Loan Delinquency — lagging indicator
+        # Real estate loan delinquency at commercial banks (CRE proxy — includes
+        # office, retail, multifamily). Stress shows up slowly due to long lease terms.
+        cre_curr = safe(cre_delinq.iloc[-1]) if not cre_delinq.empty else None
+        mu_cre, std_cre = ms(cre_delinq, 3.0, 1.5)
+        if not cre_delinq.empty and cre_curr is not None:
+            z, st, nt = z_score_series(cre_delinq, cre_curr, higher_is_overvalued=True)
+        else:
+            z, st, nt = bench_z(cre_curr, avg=mu_cre, std=std_cre, higher_is_overvalued=True)
+        if cre_curr and cre_curr > 6.0:
+            nt = "★ ELEVATED — CRE distress at GFC-era levels"
+        elif cre_curr and cre_curr > mu_cre * 1.4:
+            nt = nt or "Rising — monitor office/retail refinancing risk"
+        metrics.append(row("CRE Loan Delinquency", "Commercial Stress", cre_curr, "%",
+                           z, st, nt, avg=round(mu_cre, 2), std=round(std_cre, 2),
+                           source="FRED DRREACBN — Real Estate Loans (lagging)"))
+
+        # 24. C&I Loan Delinquency — coincident indicator
+        # Business loan delinquency across all commercial banks. Tracks mid-to-large
+        # corporate health alongside earnings cycles and supply chain conditions.
+        ci_curr = safe(ci_delinq.iloc[-1]) if not ci_delinq.empty else None
+        mu_ci, std_ci = ms(ci_delinq, 1.5, 0.8)
+        if not ci_delinq.empty and ci_curr is not None:
+            z, st, nt = z_score_series(ci_delinq, ci_curr, higher_is_overvalued=True)
+        else:
+            z, st, nt = bench_z(ci_curr, avg=mu_ci, std=std_ci, higher_is_overvalued=True)
+        if ci_curr and ci_curr > 3.5:
+            nt = "★ ELEVATED — corporate credit stress building"
+        metrics.append(row("C&I Loan Delinquency", "Commercial Stress", ci_curr, "%",
+                           z, st, nt, avg=round(mu_ci, 2), std=round(std_ci, 2),
+                           source="FRED DRBLACBS — Business Loans (coincident)"))
+
+        # 25. SMB Bank Lending Standards — leading indicator
+        # Net % of banks tightening C&I standards to SMALL firms (SLOOS survey).
+        # SMBs have thin reserves; tightening hits them first. Positive = tightening.
+        smb_curr = safe(smb_tight.iloc[-1]) if not smb_tight.empty else None
+        mu_smb, std_smb = ms(smb_tight, 5.0, 20.0)
+        if not smb_tight.empty and smb_curr is not None:
+            z, st, nt = z_score_series(smb_tight, smb_curr, higher_is_overvalued=True)
+        else:
+            z, st, nt = bench_z(smb_curr, avg=mu_smb, std=std_smb, higher_is_overvalued=True)
+        if smb_curr and smb_curr > 40:
+            nt = "★ EXTREME TIGHTENING — SMB credit crunch risk"
+        elif smb_curr and smb_curr > 20:
+            nt = nt or "Banks tightening SMB credit — watch default lag"
+        elif smb_curr and smb_curr < -10:
+            nt = "Banks easing — SMB credit conditions favorable"
+        metrics.append(row("SMB Credit Tightening", "Commercial Stress", smb_curr, "%",
+                           z, st, nt, avg=round(mu_smb, 1), std=round(std_smb, 1),
+                           source="FRED DRTSCLNM — SLOOS Small Firms (leading)"))
 
         # ── Summary ───────────────────────────────────────────────────────────
         statuses = [m["status"] for m in metrics]

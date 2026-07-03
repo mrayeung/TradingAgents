@@ -43,6 +43,7 @@ const CATEGORY_ORDER = [
   "Sentiment",
   "Economic",
   "Consumer Stress",
+  "Commercial Stress",
 ];
 
 const HEAT_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
