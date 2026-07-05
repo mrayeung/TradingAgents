@@ -61,6 +61,19 @@ _runs: dict[str, RunHandle] = {}
 _scorecard_cache: dict = {"data": None, "ts": 0.0}
 _SCORECARD_TTL = 7 * 24 * 3600  # 7 days
 
+# Macro Risk & Event Dashboard — 1-hour cache
+_dashboard_cache: dict = {"data": None, "ts": 0.0}
+_DASHBOARD_TTL = 3600  # 1 hour
+
+_WATCHLIST: list[str] = ["NVDA", "TSLA", "AVGO", "MU", "TLN"]
+_DEFAULT_STRATEGIES: dict[str, str] = {
+    "NVDA": "PMCC",
+    "TSLA": "Iron Condor",
+    "AVGO": "PMCC",
+    "MU": "Cash-Secured Put",
+    "TLN": "Wheel (Short Put)",
+}
+
 # Runs execute on a dedicated single-worker pool, NOT the event loop's default
 # executor. This (a) serializes runs so two concurrent runs never race on the
 # shared ``os.environ`` provider keys, and (b) keeps multi-minute runs off the
@@ -2028,3 +2041,552 @@ async def get_options(ticker: str) -> dict:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 🏠  MACRO RISK & EVENT INTELLIGENCE DASHBOARD
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/dashboard")
+async def get_dashboard(refresh: bool = False) -> dict:
+    """Advanced Macro & Risk Event Intelligence Dashboard.
+
+    Returns a unified JSON payload powering the portal landing page:
+      • Macro traffic lights — SOFR/IORB spread, RRP balance
+      • Treasury liquidity drain — upcoming T-Bill/Note/Bond settlement amounts
+        via the FiscalData Treasury API (no key required)
+      • Master calendar — FOMC, CPI, Monthly OpEx, EIA NatGas (Thu), earnings
+        and ex-dividend dates for the watchlist (60-day horizon)
+      • Position risk matrix — event × strategy cross-reference with heuristic
+        risk scoring and agent-style recommendations
+      • Insider signals — cluster Open-Market buys via Finnhub
+        (requires FINNHUB_API_KEY env var; skipped if absent)
+
+    Cached 1 hour. Pass ?refresh=true to force rebuild.
+    """
+    import time as _time
+    now = _time.time()
+    if not refresh and _dashboard_cache["data"] and (now - _dashboard_cache["ts"]) < _DASHBOARD_TTL:
+        return _dashboard_cache["data"]
+
+    def _build() -> dict:  # noqa: PLR0912, PLR0915
+        import json as _json
+        import urllib.request
+
+        import pandas as pd
+        import yfinance as yf
+
+        warns: list[str] = []
+        today = pd.Timestamp.now().normalize()
+        today_str = today.strftime("%Y-%m-%d")
+
+        # ── FRED helper (public CSV, no API key) ────────────────────────────────
+        def fred_last(sid: str) -> float | None:
+            try:
+                url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={sid}"
+                req = urllib.request.Request(
+                    url,
+                    headers={"User-Agent": "Mozilla/5.0 (compatible; TradingDesk/1.0)"},
+                )
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    lines = r.read().decode().strip().splitlines()
+                for line in reversed(lines[1:]):
+                    parts = line.split(",")
+                    if len(parts) >= 2 and parts[1].strip() not in (".", ""):
+                        return float(parts[1].strip())
+            except Exception as e:
+                warns.append(f"FRED {sid}: {e}")
+            return None
+
+        # ── A. Macro Traffic Light ──────────────────────────────────────────────
+        sofr = fred_last("SOFR")          # % e.g. 5.30
+        iorb = fred_last("IORB")          # % e.g. 5.40
+        rrp_bn = fred_last("RRPONTSYD")   # billions USD
+
+        if sofr is not None and iorb is not None:
+            spread = round(sofr - iorb, 4)
+            # SOFR normally 10-20bps below IORB (ample reserves).
+            # Narrowing spread → fewer excess reserves → risk-off pressure.
+            spread_status = "GREEN" if spread <= -0.10 else "YELLOW" if spread <= -0.03 else "RED"
+        else:
+            spread, spread_status = None, "UNKNOWN"
+
+        if rrp_bn is not None:
+            rrp_status = "ABUNDANT" if rrp_bn > 300 else "LOW" if rrp_bn > 50 else "CRITICAL"
+        else:
+            rrp_status = "UNKNOWN"
+
+        macro_traffic = {
+            "sofr": sofr,
+            "iorb": iorb,
+            "sofr_iorb_spread": spread,
+            "spread_status": spread_status,
+            "rrp_balance_bn": rrp_bn,
+            "rrp_status": rrp_status,
+        }
+
+        # ── B. Treasury Liquidity Drain ─────────────────────────────────────────
+        treasury_drain: dict = {
+            "upcoming": [], "next_drain": None,
+            "weekly_net_bn": None, "status": "UNKNOWN",
+        }
+        try:
+            future_str = (today + pd.DateOffset(days=14)).strftime("%Y-%m-%d")
+            treas_url = (
+                "https://api.fiscaldata.treasury.gov/services/api/v1"
+                "/accounting/od/auctions_query"
+                f"?sort=issue_date&filter=issue_date:gte:{today_str},issue_date:lte:{future_str}"
+                "&fields=security_type,cusip,auction_date,issue_date,offering_amt"
+                "&page%5Bnumber%5D=1&page%5Bsize%5D=25&format=json"
+            )
+            req = urllib.request.Request(
+                treas_url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (compatible; TradingDesk/1.0)",
+                    "Accept": "application/json",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=12) as r:
+                tdata = _json.loads(r.read())
+
+            upcoming: list[dict] = []
+            for item in tdata.get("data", []):
+                if item.get("security_type") in ("Bill", "Note", "Bond"):
+                    amt_raw = item.get("offering_amt") or "0"
+                    try:
+                        # API returns offering_amt in USD thousands → convert to billions
+                        amt_bn = round(float(amt_raw) / 1_000_000, 1)
+                    except Exception:
+                        amt_bn = 0.0
+                    if amt_bn > 0:
+                        upcoming.append({
+                            "settlement_date": item.get("issue_date", ""),
+                            "auction_date": item.get("auction_date", ""),
+                            "type": item.get("security_type", ""),
+                            "amount_bn": amt_bn,
+                        })
+
+            upcoming.sort(key=lambda x: x["settlement_date"])
+            treasury_drain["upcoming"] = upcoming[:8]
+
+            if upcoming:
+                week_cutoff = (today + pd.DateOffset(days=7)).strftime("%Y-%m-%d")
+                weekly_net = round(
+                    sum(x["amount_bn"] for x in upcoming if x["settlement_date"] <= week_cutoff), 1
+                )
+                treasury_drain["weekly_net_bn"] = weekly_net
+
+                n = upcoming[0]
+                drain_status = (
+                    "CODE_RED" if weekly_net > 100 and (rrp_bn or 999) < 50
+                    else "MONITOR" if weekly_net > 50
+                    else "NORMAL"
+                )
+                treasury_drain["next_drain"] = {
+                    "date": n["settlement_date"],
+                    "amount_bn": n["amount_bn"],
+                    "type": n["type"],
+                    "status": drain_status,
+                }
+                treasury_drain["status"] = drain_status
+        except Exception as e:
+            warns.append(f"TreasuryDirect: {e}")
+
+        # ── C. Master Calendar ──────────────────────────────────────────────────
+        # 2026 FOMC decision dates (announcement day)
+        FOMC_2026 = [
+            "2026-01-29", "2026-03-18", "2026-05-07", "2026-06-18",
+            "2026-07-30", "2026-09-17", "2026-10-29", "2026-12-10",
+        ]
+        # 2026 BLS CPI release dates
+        CPI_2026 = [
+            "2026-01-14", "2026-02-11", "2026-03-11", "2026-04-10",
+            "2026-05-13", "2026-06-10", "2026-07-15", "2026-08-12",
+            "2026-09-11", "2026-10-14", "2026-11-12", "2026-12-10",
+        ]
+        # 3rd Friday of each month (monthly OpEx)
+        OPEX_2026 = [
+            "2026-01-16", "2026-02-20", "2026-03-20", "2026-04-17",
+            "2026-05-15", "2026-06-19", "2026-07-17", "2026-08-21",
+            "2026-09-18", "2026-10-16", "2026-11-20", "2026-12-18",
+        ]
+
+        cutoff_past = (today - pd.DateOffset(days=2)).strftime("%Y-%m-%d")
+        cutoff_future = (today + pd.DateOffset(days=60)).strftime("%Y-%m-%d")
+
+        calendar_events: list[dict] = []
+
+        def cal_add(date: str, event: str, category: str, severity: str,
+                    tickers: list, notes: str) -> None:
+            if cutoff_past <= date <= cutoff_future:
+                calendar_events.append({
+                    "date": date, "event": event, "category": category,
+                    "severity": severity, "tickers": tickers, "notes": notes,
+                })
+
+        for d in FOMC_2026:
+            cal_add(d, "FOMC Rate Decision", "MACRO", "HIGH", [],
+                    "Fed rate decision + press conference — expect broad vol expansion")
+        for d in CPI_2026:
+            cal_add(d, "CPI Release", "MACRO", "HIGH", [],
+                    "Consumer Price Index MoM / YoY — key macro catalyst for rate path")
+        for d in OPEX_2026:
+            cal_add(d, "Monthly OpEx", "OPEX", "MEDIUM", list(_WATCHLIST),
+                    "Monthly options expiration — pin risk + vol crush into close")
+
+        # EIA NatGas (every Thursday)
+        eia_d = today
+        while eia_d.weekday() != 3:       # advance to next Thursday
+            eia_d += pd.DateOffset(days=1)
+        for _ in range(12):
+            ds = eia_d.strftime("%Y-%m-%d")
+            if ds > cutoff_future:
+                break
+            cal_add(ds, "EIA NatGas Inventory", "COMMODITY", "MEDIUM", ["TLN"],
+                    "Weekly EIA natural gas storage — can swing TLN ±3% on surprise builds/draws")
+            eia_d += pd.DateOffset(days=7)
+
+        # Treasury settlements in calendar
+        for item in treasury_drain.get("upcoming", []):
+            sd = item["settlement_date"]
+            if cutoff_past <= sd <= cutoff_future and item["amount_bn"] > 0:
+                flag = " ⚠️ CODE RED" if treasury_drain["status"] == "CODE_RED" else ""
+                cal_add(sd,
+                    f"{item['type']} Settlement ${item['amount_bn']}B{flag}",
+                    "LIQUIDITY",
+                    "HIGH" if item["amount_bn"] > 50 else "MEDIUM",
+                    [],
+                    "Treasury settlement drains bank reserves — monitor SOFR/IORB spread")
+
+        # ── D. yfinance: per-ticker earnings + ex-div ───────────────────────────
+        for sym in _WATCHLIST:
+            try:
+                tkr = yf.Ticker(sym)
+                info = tkr.info or {}
+
+                # Earnings date (yfinance ≥0.2.x returns dict; older versions: DataFrame)
+                earn_str: str | None = None
+                try:
+                    cal = tkr.calendar
+                    if isinstance(cal, dict):
+                        raw = cal.get("Earnings Date")
+                        if isinstance(raw, list) and raw:
+                            earn_str = pd.Timestamp(raw[0]).strftime("%Y-%m-%d")
+                        elif raw is not None:
+                            earn_str = pd.Timestamp(raw).strftime("%Y-%m-%d")
+                    elif cal is not None and hasattr(cal, "columns"):
+                        if "Earnings Date" in cal.columns:
+                            earn_str = pd.Timestamp(
+                                cal["Earnings Date"].iloc[0]
+                            ).strftime("%Y-%m-%d")
+                except Exception:
+                    pass
+
+                # Ex-dividend date (unix timestamp in info dict)
+                exdiv_str: str | None = None
+                exd = info.get("exDividendDate")
+                if exd:
+                    try:
+                        exdiv_str = pd.Timestamp(exd, unit="s").strftime("%Y-%m-%d")
+                    except Exception:
+                        pass
+
+                if earn_str:
+                    cal_add(earn_str, f"{sym} Earnings", "EARNINGS", "HIGH", [sym],
+                            "Earnings release — IV spike pre-print then crush post-print")
+                if exdiv_str:
+                    cal_add(exdiv_str, f"{sym} Ex-Dividend", "DIVIDEND", "LOW", [sym],
+                            "Ex-div date — early assignment risk if short call is deep ITM")
+            except Exception as e:
+                warns.append(f"{sym} yfinance: {e}")
+
+        # Sort before position-matrix lookup
+        calendar_events.sort(key=lambda x: x["date"])
+
+        # ── E. Position Risk Matrix ─────────────────────────────────────────────
+        position_matrix: list[dict] = []
+
+        for sym in _WATCHLIST:
+            # Pull ticker-specific events + macro events in the next 60 days
+            ticker_events = sorted(
+                [e for e in calendar_events
+                 if e["date"] >= today_str
+                 and (sym in e.get("tickers", []) or e["category"] == "MACRO")],
+                key=lambda x: x["date"],
+            )
+            nxt = ticker_events[0] if ticker_events else None
+            dte = int((pd.Timestamp(nxt["date"]) - today).days) if nxt else None
+
+            risk_level = "NORMAL"
+            risk_tags: list[str] = []
+            rec = "No near-term catalyst — manage theta decay and hold position."
+
+            if nxt:
+                cat = nxt["category"]
+                ev = nxt["event"]
+
+                if cat == "EARNINGS":
+                    risk_tags.append("IV Crush")
+                    if dte is not None and dte <= 3:
+                        risk_level = "HIGH"
+                        rec = (f"Earnings in {dte}d — close all short options before print "
+                               "to avoid IV crush on the short leg.")
+                    elif dte is not None and dte <= 14:
+                        risk_level = "HIGH"
+                        rec = (f"Earnings in {dte}d — evaluate rolling the short call/put "
+                               "to a lower delta strike or to the month after.")
+                    else:
+                        risk_level = "MEDIUM"
+                        rec = f"Earnings in {dte}d — monitor IV expansion as we approach print."
+
+                elif cat == "LIQUIDITY":
+                    risk_tags.append("Liquidity Drain")
+                    if dte is not None and dte <= 3 and "CODE_RED" in ev:
+                        risk_level = "HIGH"
+                        rec = ("Code Red T-Bill settlement within 3d — reduce net delta, "
+                               "raise cash buffer, and tighten stops on all short puts.")
+                    elif dte is not None and dte <= 7:
+                        risk_level = "MEDIUM"
+                        rec = (f"Treasury settlement in {dte}d — monitor market-wide "
+                               "de-risking; adjust only if position delta exceeds comfort.")
+                    else:
+                        rec = f"Treasury settlement in {dte}d — no immediate action; watch RRP drawdown trend."
+
+                elif cat == "MACRO" and "FOMC" in ev:
+                    risk_tags.append("Rate Shock")
+                    if dte is not None and dte <= 3:
+                        risk_level = "HIGH"
+                        rec = ("FOMC within 3d — close gamma-heavy positions; "
+                               "hold only high-theta, far-OTM spreads through the event.")
+                    elif dte is not None and dte <= 10:
+                        risk_level = "MEDIUM"
+                        rec = (f"FOMC in {dte}d — consider buying a cheap OTM protective "
+                               "put to cap downside on any short-put exposure.")
+                    else:
+                        rec = f"FOMC in {dte}d — no action; standard management."
+
+                elif cat == "MACRO" and "CPI" in ev:
+                    risk_tags.append("Macro Vol")
+                    risk_level = "MEDIUM" if dte is not None and dte <= 3 else "LOW"
+                    rec = (f"CPI release in {dte}d — hold unless near the short strike; "
+                           "CPI surprises create asymmetric vol spikes.")
+
+                elif cat == "OPEX":
+                    risk_tags.append("Pin Risk")
+                    if dte is not None and dte <= 2:
+                        risk_level = "HIGH"
+                        rec = "OpEx Friday in ≤2d — close near-the-money legs or roll to next month now."
+                    elif dte is not None and dte <= 5:
+                        risk_level = "MEDIUM"
+                        rec = f"OpEx in {dte}d — evaluate delta neutrality; gamma accelerating into expiry."
+                    else:
+                        rec = f"OpEx in {dte}d — standard theta management; no action required."
+
+                elif cat == "COMMODITY" and sym == "TLN":
+                    risk_tags.append("NatGas Vol")
+                    risk_level = "MEDIUM"
+                    rec = (f"EIA NatGas report in {dte}d — power-gen inputs can swing TLN "
+                           "±3%; hold strike unless deep ITM.")
+
+                elif cat == "DIVIDEND":
+                    risk_tags.append("Assignment Risk")
+                    risk_level = "LOW" if (dte is None or dte > 7) else "MEDIUM"
+                    rec = (f"Ex-div in {dte}d — verify short calls are OTM; "
+                           "early assignment if intrinsic value > dividend amount.")
+
+            position_matrix.append({
+                "ticker": sym,
+                "strategy": _DEFAULT_STRATEGIES.get(sym, "—"),
+                "next_event": nxt["event"] if nxt else "None in 60d",
+                "event_date": nxt["date"] if nxt else None,
+                "days_to_event": dte,
+                "risk_level": risk_level,
+                "risk_tags": risk_tags,
+                "recommendation": rec,
+            })
+
+        # ── F. Insider Signals (Finnhub, if API key set) ────────────────────────
+        insider_signals: list[dict] = []
+        fhub_key = os.environ.get("FINNHUB_API_KEY", "")
+
+        if fhub_key:
+            from_date = (today - pd.DateOffset(days=3)).strftime("%Y-%m-%d")
+            EXEC_ROLES = {"CEO", "CFO", "COO", "CTO", "President", "Chairman", "Director", "VP"}
+            for sym in _WATCHLIST:
+                try:
+                    furl = (
+                        f"https://finnhub.io/api/v1/stock/insider-transactions"
+                        f"?symbol={sym}&from={from_date}&token={fhub_key}"
+                    )
+                    req = urllib.request.Request(
+                        furl,
+                        headers={"User-Agent": "Mozilla/5.0 (compatible; TradingDesk/1.0)"},
+                    )
+                    with urllib.request.urlopen(req, timeout=8) as r:
+                        idata = _json.loads(r.read())
+
+                    buys = [
+                        tx for tx in idata.get("data", [])
+                        if tx.get("transactionCode") == "P"
+                        and any(role in (tx.get("reportedTitle") or "") for role in EXEC_ROLES)
+                        and not tx.get("is10b51", False)
+                    ]
+                    if len(buys) >= 2:
+                        total_val = sum(
+                            float(b.get("transactionPrice", 0)) * int(b.get("share", 0))
+                            for b in buys
+                        )
+                        insider_signals.append({
+                            "ticker": sym,
+                            "type": "CLUSTER_BUY",
+                            "officer": f"{len(buys)} insiders (48h)",
+                            "action": "Open Market Purchase",
+                            "shares": sum(int(b.get("share", 0)) for b in buys),
+                            "value_usd": round(total_val, 0),
+                            "date": buys[0].get("filingDate", ""),
+                            "is_cluster": True,
+                            "note": (
+                                "★ Cluster buy — structural support signal; "
+                                "consider cash-secured put or PMCC entry"
+                            ),
+                        })
+                except Exception as e:
+                    warns.append(f"{sym} insider: {e}")
+        else:
+            warns.append("FINNHUB_API_KEY not set — insider signals disabled")
+
+        return {
+            "generated_at": pd.Timestamp.now().isoformat(),
+            "watchlist": list(_WATCHLIST),
+            "macro_traffic": macro_traffic,
+            "treasury_drain": treasury_drain,
+            "calendar": calendar_events,
+            "position_matrix": position_matrix,
+            "insider_signals": insider_signals,
+            "warnings": warns,
+        }
+
+    try:
+        result = await asyncio.to_thread(_build)
+        _dashboard_cache["data"] = result
+        _dashboard_cache["ts"] = now
+        return result
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"dashboard error: {exc}") from exc
+
+
+# ── Pairs Trading Thesis ──────────────────────────────────────────────────────
+
+@app.post("/pairs/thesis")
+async def pairs_thesis(request: Request) -> JSONResponse:
+    """
+    Generate (or relay) a trade thesis for a stat-arb pair.
+
+    Body:
+      {
+        "pair_id":    "xom-cvx",
+        "ticker":     "XOM / CVX",
+        "sector":     "Energy",
+        "z_score":    2.31,
+        "half_life":  8,
+        "coint_p":    0.012,
+        "beta":       0.87,
+        "score":      92,
+        "draft":      "Optional seed text the client already has"
+      }
+
+    If an LLM provider is configured (OPENROUTER_API_KEY or ANTHROPIC_API_KEY),
+    a fresh 150-word thesis is generated from the parameters.
+    Otherwise the draft text passed from the frontend is echoed back so the
+    typewriter effect on the client side still works without a key.
+    """
+    import json as _json_mod
+
+    body: dict = await request.json()
+
+    ticker   = body.get("ticker", "Unknown Pair")
+    sector   = body.get("sector", "")
+    z_score  = float(body.get("z_score", 0))
+    halflife = int(body.get("half_life", 0))
+    coint_p  = float(body.get("coint_p", 0.05))
+    beta     = float(body.get("beta", 1.0))
+    score    = int(body.get("score", 80))
+    draft    = body.get("draft", "")
+
+    sign = "+" if z_score >= 0 else ""
+    entry = abs(z_score) >= 2.0
+
+    # ── Try OpenRouter / Anthropic for a live thesis ──────────────────────
+    or_key  = os.environ.get("OPENROUTER_API_KEY", "")
+    ant_key = os.environ.get("ANTHROPIC_API_KEY", "")
+
+    system_prompt = (
+        "You are a quantitative analyst at a Medallion-style hedge fund. "
+        "Write a concise, precise 120-150 word trade thesis in plain text "
+        "(no markdown headers). Include: pair rationale, current z-score "
+        "interpretation, cointegration assessment, and specific entry/exit guidance "
+        "with sizing note. End with risk flags if relevant."
+    )
+    user_prompt = (
+        f"Pair: {ticker} | Sector: {sector}\n"
+        f"Z-Score: {sign}{z_score:.2f}σ ({'ENTRY TRIGGERED' if entry else 'WATCH — approaching'})\n"
+        f"Engle-Granger p={coint_p:.3f} | OU half-life={halflife}d | Kalman β={beta:.2f} | Score={score}/100\n"
+        "Write the trade thesis now."
+    )
+
+    thesis_text: str = draft  # fallback
+
+    if or_key:
+        try:
+            import urllib.request as _ur2
+            payload = _json_mod.dumps({
+                "model": "openai/gpt-4o-mini",
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user",   "content": user_prompt},
+                ],
+                "max_tokens": 300,
+                "temperature": 0.5,
+            }).encode()
+            req = _ur2.Request(
+                "https://openrouter.ai/api/v1/chat/completions",
+                data=payload,
+                headers={
+                    "Authorization": f"Bearer {or_key}",
+                    "Content-Type":  "application/json",
+                    "HTTP-Referer":  "http://localhost:3000",
+                },
+                method="POST",
+            )
+            with _ur2.urlopen(req, timeout=20) as resp:
+                rdata = _json_mod.loads(resp.read())
+            thesis_text = rdata["choices"][0]["message"]["content"].strip()
+        except Exception:
+            pass  # fall through to draft/Anthropic
+
+    elif ant_key and thesis_text == draft:
+        try:
+            import urllib.request as _ur2
+            payload = _json_mod.dumps({
+                "model": "claude-haiku-4-5-20251001",
+                "max_tokens": 300,
+                "system": system_prompt,
+                "messages": [{"role": "user", "content": user_prompt}],
+            }).encode()
+            req = _ur2.Request(
+                "https://api.anthropic.com/v1/messages",
+                data=payload,
+                headers={
+                    "x-api-key":         ant_key,
+                    "anthropic-version": "2023-06-01",
+                    "Content-Type":      "application/json",
+                },
+                method="POST",
+            )
+            with _ur2.urlopen(req, timeout=20) as resp:
+                rdata = _json_mod.loads(resp.read())
+            thesis_text = rdata["content"][0]["text"].strip()
+        except Exception:
+            pass
+
+    return JSONResponse({"thesis": thesis_text, "source": "llm" if thesis_text != draft else "draft"})

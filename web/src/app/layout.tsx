@@ -8,18 +8,20 @@ export const metadata: Metadata = {
 };
 
 const NAV = [
-  { href: "/portfolio/signals",      label: "📡 Signals",        desc: "Analyst conviction" },
-  { href: "/portfolio/construct",    label: "⚖️  Construct",      desc: "BL optimisation" },
-  { href: "/portfolio/benchmark",    label: "📈 Benchmark",      desc: "vs SPY / QQQ / DIA" },
-  { href: "/portfolio/correlation",  label: "🔗 Correlation",    desc: "Risk clusters" },
-  { href: "/portfolio/sizing",       label: "📐 Sizing",         desc: "Kelly criterion" },
-  { href: "/portfolio/rebalance",    label: "🔄 Rebalance",      desc: "Trade list" },
-  { href: "/portfolio/institutions",           label: "🏦 Institutions",   desc: "13F portfolio tracker" },
-  { href: "/portfolio/institutions/analytics", label: "📊 13F Analytics",   desc: "Cross-fund intelligence" },
-  { href: "/portfolio/options",                label: "🎯 Options Action",  desc: "IV · trade ideas · flow" },
-  { href: "/portfolio/macro",        label: "🌐 Macro Dashboard", desc: "Cross-asset regime view" },
-  { href: "/portfolio/scorecard",    label: "🎯 Valuation Score", desc: "S&P 500 BofA-style scorecard" },
-  { href: "/portfolio/reports",      label: "📚 Reports",         desc: "Full report library" },
+  { href: "/",                                  label: "🏠 Dashboard",        desc: "Macro risk & event HUD" },
+  { href: "/portfolio/signals",                 label: "📡 Signals",          desc: "Analyst conviction" },
+  { href: "/portfolio/construct",               label: "⚖️  Construct",        desc: "BL optimisation" },
+  { href: "/portfolio/benchmark",               label: "📈 Benchmark",        desc: "vs SPY / QQQ / DIA" },
+  { href: "/portfolio/correlation",             label: "🔗 Correlation",      desc: "Risk clusters" },
+  { href: "/portfolio/sizing",                  label: "📐 Sizing",           desc: "Kelly criterion" },
+  { href: "/portfolio/rebalance",               label: "🔄 Rebalance",        desc: "Trade list" },
+  { href: "/portfolio/institutions",            label: "🏦 Institutions",     desc: "13F portfolio tracker" },
+  { href: "/portfolio/institutions/analytics",  label: "📊 13F Analytics",    desc: "Cross-fund intelligence" },
+  { href: "/portfolio/options",                 label: "⚡ Options Action",   desc: "IV · trade ideas · flow" },
+  { href: "/portfolio/macro",                   label: "🌐 Macro Dashboard",  desc: "Cross-asset regime view" },
+  { href: "/portfolio/pairs",                   label: "🧬 Pair Trades",      desc: "RenTec stat arb screener" },
+  { href: "/portfolio/scorecard",               label: "📊 Valuation Score",  desc: "S&P 500 BofA-style scorecard" },
+  { href: "/portfolio/reports",                 label: "📚 Reports",          desc: "Full report library" },
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
