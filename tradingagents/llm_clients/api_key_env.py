@@ -35,6 +35,10 @@ PROVIDER_API_KEY_ENV: dict[str, str | None] = {
     "kimi":       "MOONSHOT_API_KEY",
     "groq":       "GROQ_API_KEY",
     "nvidia":     "NVIDIA_API_KEY",
+    # nvidia_nim is the catalog/UI provider id for NVIDIA NIM; its key lives in
+    # NVIDIA_NIM_API_KEY (see .env + docker-compose). Without this entry the
+    # client resolves no key and sends a placeholder -> 401 Unauthorized.
+    "nvidia_nim": "NVIDIA_NIM_API_KEY",
     # Local runtimes do not authenticate.
     "ollama":     None,
     # Generic OpenAI-compatible endpoint: the client reads this when set (keyed

@@ -37,6 +37,10 @@ dependencies = [
     "sse-starlette>=2.1.0",
     "numpy>=1.26.0",
     "scipy>=1.13.0",
+    # News vendor deps (dropped from main during pr-1077 consolidation) — without
+    # these the finnhub->google_news chain fails as "No available vendor for 'get_news'".
+    "feedparser>=6.0.0",       # Google News RSS fallback — no API key required
+    "finnhub-python>=2.4.0",   # Finnhub primary news + social sentiment
 ]
 
 [project.optional-dependencies]

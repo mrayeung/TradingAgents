@@ -21,6 +21,7 @@ from tradingagents.agents import (
     create_sentiment_analyst,
     create_trader,
 )
+from tradingagents.agents.analysts.quantitative_analyst import create_quantitative_analyst
 from tradingagents.agents.analysts.valuation_analyst import create_valuation_analyst
 from tradingagents.agents.utils.agent_states import AgentState
 
@@ -120,6 +121,11 @@ class GraphSetup:
             workflow.add_node(spec.clear_node, create_msg_delete())
             workflow.add_node(spec.tool_node, self.tool_nodes[spec.key])
 
+        # Quantitative Analyst (Markov 2.0) runs once at the front of every graph,
+        # independent of the selected-analyst plan, and feeds a regime/edge signal
+        # into the debate and decision agents via ``quantitative_report``.
+        workflow.add_node("Quantitative Analyst", create_quantitative_analyst())
+
         # Add other nodes
         workflow.add_node("Bull Researcher", bull_researcher_node)
         workflow.add_node("Bear Researcher", bear_researcher_node)
@@ -131,8 +137,9 @@ class GraphSetup:
         workflow.add_node("Portfolio Manager", portfolio_manager_node)
 
         # Define edges
-        # Start with the first analyst in the execution plan
-        workflow.add_edge(START, plan.specs[0].agent_node)
+        # Quantitative Analyst (Markov 2.0) runs first, then the analyst chain.
+        workflow.add_edge(START, "Quantitative Analyst")
+        workflow.add_edge("Quantitative Analyst", plan.specs[0].agent_node)
 
         # Connect analysts in sequence
         for i, spec in enumerate(plan.specs):

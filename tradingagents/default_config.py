@@ -153,7 +153,7 @@ DEFAULT_CONFIG = _apply_env_overrides({
     # Debate and discussion settings
     "max_debate_rounds": 1,
     "max_risk_discuss_rounds": 1,
-    "max_recur_limit": 100,
+    "max_recur_limit": 250,
     # News / data fetching parameters
     # Increase for longer lookback strategies or to broaden macro coverage;
     # decrease to reduce token usage in agent prompts.
@@ -182,7 +182,7 @@ DEFAULT_CONFIG = _apply_env_overrides({
         # News vendor chain:    finnhub (primary) → google_news (backup) → yfinance (fallback)
         # Sentiment chain:      finnhub (paid)    → stocktwits (free, no key)
         # Requires: FINNHUB_API_KEY in .env  +  pip install finnhub-python feedparser
-        "news_data": "finnhub,google_news",
+        "news_data": "finnhub,google_news,yfinance",
         "social_sentiment": "finnhub,stocktwits",
         "macro_data": "fred",                # Options: fred (needs FRED_API_KEY)
         "prediction_markets": "polymarket",  # Options: polymarket (keyless)
