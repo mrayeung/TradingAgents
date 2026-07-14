@@ -38,6 +38,10 @@ from tradingagents.agents.utils.agent_utils import (
     get_insider_transactions,
     get_global_news
 )
+from tradingagents.agents.utils.valuation_tools import (
+    get_peer_comparables,
+    get_valuation_metrics,
+)
 
 from .checkpointer import checkpoint_step, clear_checkpoint, get_checkpointer, thread_id
 from .conditional_logic import ConditionalLogic
@@ -96,8 +100,25 @@ class TradingAgentsGraph:
             **llm_kwargs,
         )
 
+        # ── Debate LLM (bull/bear/risk analysts) ──────────────────────────────
+        # Falls back to quick_think settings if no dedicated debate config is set.
+        # Debate nodes get plain kwargs only — no reasoning-effort / thinking-level
+        # flags (those belong on the deep model, not fast advocates).
+        debate_provider = self.config.get("debate_llm_provider") or self.config["llm_provider"]
+        debate_model    = self.config.get("debate_llm_model")    or self.config["quick_think_llm"]
+        debate_url      = self.config.get("debate_backend_url")  or self.config.get("backend_url")
+        debate_kwargs   = {"callbacks": self.callbacks} if self.callbacks else {}
+
+        debate_client = create_llm_client(
+            provider=debate_provider,
+            model=debate_model,
+            base_url=debate_url,
+            **debate_kwargs,
+        )
+
         self.deep_thinking_llm = deep_client.get_llm()
         self.quick_thinking_llm = quick_client.get_llm()
+        self.debate_llm = debate_client.get_llm()
         
         self.memory_log = TradingMemoryLog(self.config)
 
@@ -112,6 +133,7 @@ class TradingAgentsGraph:
         self.graph_setup = GraphSetup(
             self.quick_thinking_llm,
             self.deep_thinking_llm,
+            self.debate_llm,
             self.tool_nodes,
             self.conditional_logic,
         )
@@ -196,6 +218,7 @@ class TradingAgentsGraph:
                     get_income_statement,
                 ]
             ),
+            "valuation": ToolNode([get_valuation_metrics, get_peer_comparables]),
         }
 
     def _fetch_returns(

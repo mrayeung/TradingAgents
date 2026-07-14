@@ -217,3 +217,18 @@ __marimo__/
 
 # Cache
 **/data_cache/
+
+# macOS
+.DS_Store
+
+# Node / Next.js
+web/node_modules/
+web/.next/
+web/.env.local
+
+# macOS Swift build artifacts
+macos/**/.build/
+macos/**/DerivedData/
+
+# TradingAgents reports and logs
+reports/

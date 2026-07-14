@@ -101,6 +101,24 @@ MODEL_OPTIONS: ProviderModeOptions = {
             ("Custom model ID", "custom"),
         ],
     },
+    # ---------------------------------------------------------------------------
+    # NVIDIA NIM — free-tier OpenAI-compatible API (build.nvidia.com)
+    # Model IDs use "org/model-name" format. Two free-tier pairs:
+    #   Pair 1 — DeepSeek: deepseek-ai/deepseek-r1-0528 (Pro) + deepseek-ai/deepseek-v3-0324 (Flash)
+    #   Pair 2 — GLM:      thudm/glm-z1-32b (5.2 / deep) + thudm/glm-4-9b-chat (4.7 Flash / quick)
+    # ---------------------------------------------------------------------------
+    "nvidia_nim": {
+        "quick": [
+            ("DeepSeek V4 Flash (NIM) — fast reasoning", "deepseek-ai/deepseek-v3-0324"),
+            ("GLM-4.7 Flash (NIM) — fast chat", "thudm/glm-4-9b-chat"),
+            ("Custom NIM model ID", "custom"),
+        ],
+        "deep": [
+            ("DeepSeek V4 Pro (NIM) — flagship reasoning", "deepseek-ai/deepseek-r1-0528"),
+            ("GLM-5.2 (NIM) — deep reasoning", "thudm/glm-z1-32b"),
+            ("Custom NIM model ID", "custom"),
+        ],
+    },
     # OpenRouter: fetched dynamically. Azure: any deployed model name.
     "ollama": {
         "quick": [

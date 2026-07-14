@@ -35,6 +35,8 @@ Company fundamentals report: {fundamentals_report}
 Conversation history of the debate: {history}
 Last bull argument: {current_response}
 Use this information to deliver a compelling bear argument, refute the bull's claims, and engage in a dynamic debate that demonstrates the risks and weaknesses of investing in the stock.
+
+STRICT OUTPUT RULES: Do NOT open with filler phrases ("Certainly", "Of course", "Great question", "Sure", "Absolutely"). Begin immediately with your first substantive argument. Do NOT concede the bull's position or agree with opposing points. You are an advocate, not a mediator.
 """
 
         response = llm.invoke(prompt)

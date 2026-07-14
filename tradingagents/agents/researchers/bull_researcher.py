@@ -33,6 +33,8 @@ Company fundamentals report: {fundamentals_report}
 Conversation history of the debate: {history}
 Last bear argument: {current_response}
 Use this information to deliver a compelling bull argument, refute the bear's concerns, and engage in a dynamic debate that demonstrates the strengths of the bull position.
+
+STRICT OUTPUT RULES: Do NOT open with filler phrases ("Certainly", "Of course", "Great question", "Sure", "Absolutely"). Begin immediately with your first substantive argument. Do NOT concede the bear's position or agree with opposing points. You are an advocate, not a mediator.
 """
 
         response = llm.invoke(prompt)

@@ -15,6 +15,47 @@ DEFAULT_CONFIG = {
     "llm_provider": "openai",
     "deep_think_llm": "gpt-5.4",
     "quick_think_llm": "gpt-5.4-mini",
+    # ---------------------------------------------------------------------------
+    # Split-model debate configuration
+    # ---------------------------------------------------------------------------
+    # When set, the 5 debate nodes (Bull, Bear, Aggressive, Conservative, Neutral)
+    # use a separate LLM from the main quick_think_llm.  This enables cross-provider
+    # pairing, e.g. Gemini Flash for daytime runs and DeepSeek Flash for batch sweeps,
+    # while keeping the deep reasoning model (Research Manager, Portfolio Manager) intact.
+    #
+    # Set to None to inherit from llm_provider / quick_think_llm / backend_url.
+    #
+    # Example — Gemini 3 Flash for debate:
+    #   "debate_llm_provider": "google",
+    #   "debate_llm_model":    "gemini-3-flash",
+    #   "debate_backend_url":  None,
+    #
+    # Example — DeepSeek V4 Flash for overnight batch (direct):
+    #   "debate_llm_provider": "deepseek",
+    #   "debate_llm_model":    "deepseek-v4-flash",
+    #   "debate_backend_url":  "https://api.deepseek.com",
+    #
+    # ---------------------------------------------------------------------------
+    # NVIDIA NIM Pair configurations (free-tier; set NVIDIA_NIM_API_KEY in .env)
+    # ---------------------------------------------------------------------------
+    # Pair 1 — DeepSeek via NIM:
+    #   "llm_provider":        "nvidia_nim",
+    #   "deep_think_llm":      "deepseek-ai/deepseek-r1-0528",   # V4 Pro
+    #   "quick_think_llm":     "deepseek-ai/deepseek-v3-0324",   # V4 Flash
+    #   "debate_llm_provider": "nvidia_nim",
+    #   "debate_llm_model":    "deepseek-ai/deepseek-v3-0324",
+    #   "debate_backend_url":  None,
+    #
+    # Pair 2 — GLM via NIM:
+    #   "llm_provider":        "nvidia_nim",
+    #   "deep_think_llm":      "thudm/glm-z1-32b",               # GLM-5.2
+    #   "quick_think_llm":     "thudm/glm-4-9b-chat",            # GLM-4.7 Flash
+    #   "debate_llm_provider": "nvidia_nim",
+    #   "debate_llm_model":    "thudm/glm-4-9b-chat",
+    #   "debate_backend_url":  None,
+    "debate_llm_provider": None,
+    "debate_llm_model":    None,
+    "debate_backend_url":  None,
     # When None, each provider's client falls back to its own default endpoint
     # (api.openai.com for OpenAI, generativelanguage.googleapis.com for Gemini, ...).
     # The CLI overrides this per provider when the user picks one. Keeping a

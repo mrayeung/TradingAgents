@@ -117,6 +117,10 @@ _PROVIDER_CONFIG = {
     "glm": ("https://api.z.ai/api/paas/v4/", "ZHIPU_API_KEY"),
     "openrouter": ("https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"),
     "ollama": ("http://localhost:11434/v1", None),
+    # NVIDIA NIM: OpenAI-compatible API with free-tier access to DeepSeek and GLM models.
+    # Get your key at: https://build.nvidia.com/ → API Key
+    # Model IDs use "org/model-name" format, e.g. "deepseek-ai/deepseek-r1-0528"
+    "nvidia_nim": ("https://integrate.api.nvidia.com/v1", "NVIDIA_NIM_API_KEY"),
 }
 
 

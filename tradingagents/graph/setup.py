@@ -17,12 +17,25 @@ class GraphSetup:
         self,
         quick_thinking_llm: Any,
         deep_thinking_llm: Any,
+        debate_llm: Any,
         tool_nodes: Dict[str, ToolNode],
         conditional_logic: ConditionalLogic,
     ):
-        """Initialize with required components."""
+        """Initialize with required components.
+
+        Args:
+            quick_thinking_llm: Fast model for analyst data-gathering nodes and trader.
+            deep_thinking_llm:  Strong model for Research Manager and Portfolio Manager.
+            debate_llm:         Fast model for the 5 adversarial debate nodes
+                                (Bull, Bear, Aggressive, Conservative, Neutral).
+                                Falls back to quick_thinking_llm when no dedicated
+                                debate provider is configured.
+            tool_nodes:         ToolNode instances keyed by analyst type.
+            conditional_logic:  Routing logic for debate/risk-discussion rounds.
+        """
         self.quick_thinking_llm = quick_thinking_llm
         self.deep_thinking_llm = deep_thinking_llm
+        self.debate_llm = debate_llm
         self.tool_nodes = tool_nodes
         self.conditional_logic = conditional_logic
 
@@ -81,19 +94,27 @@ class GraphSetup:
             delete_nodes["fundamentals"] = create_msg_delete()
             tool_nodes["fundamentals"] = self.tool_nodes["fundamentals"]
 
+        if "valuation" in selected_analysts:
+            analyst_nodes["valuation"] = create_valuation_analyst(self.deep_thinking_llm)
+            delete_nodes["valuation"] = create_msg_delete()
+            tool_nodes["valuation"] = self.tool_nodes["valuation"]
+
         # Quantitative Analyst (Markov 2.0): deterministic, runs first, no tools/LLM
         quantitative_analyst_node = create_quantitative_analyst()
 
         # Create researcher and manager nodes
-        bull_researcher_node = create_bull_researcher(self.quick_thinking_llm)
-        bear_researcher_node = create_bear_researcher(self.quick_thinking_llm)
+        # Bull/Bear use debate_llm (fast, cross-provider capable).
+        # Research Manager keeps deep_thinking_llm — it synthesises and judges.
+        bull_researcher_node  = create_bull_researcher(self.debate_llm)
+        bear_researcher_node  = create_bear_researcher(self.debate_llm)
         research_manager_node = create_research_manager(self.deep_thinking_llm)
-        trader_node = create_trader(self.quick_thinking_llm)
+        trader_node           = create_trader(self.quick_thinking_llm)
 
         # Create risk analysis nodes
-        aggressive_analyst = create_aggressive_debator(self.quick_thinking_llm)
-        neutral_analyst = create_neutral_debator(self.quick_thinking_llm)
-        conservative_analyst = create_conservative_debator(self.quick_thinking_llm)
+        # Aggressive/Conservative/Neutral use debate_llm; Portfolio Manager keeps deep.
+        aggressive_analyst    = create_aggressive_debator(self.debate_llm)
+        neutral_analyst       = create_neutral_debator(self.debate_llm)
+        conservative_analyst  = create_conservative_debator(self.debate_llm)
         portfolio_manager_node = create_portfolio_manager(self.deep_thinking_llm)
 
         # Create workflow
