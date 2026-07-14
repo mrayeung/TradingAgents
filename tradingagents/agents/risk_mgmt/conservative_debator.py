@@ -1,3 +1,7 @@
+from tradingagents.agents.utils.agent_utils import (
+    get_instrument_context_from_state,
+    get_language_instruction,
+)
 
 
 def create_conservative_debator(llm):
@@ -13,6 +17,7 @@ def create_conservative_debator(llm):
         sentiment_report = state["sentiment_report"]
         news_report = state["news_report"]
         fundamentals_report = state["fundamentals_report"]
+        instrument_context = get_instrument_context_from_state(state)
 
         trader_decision = state["trader_investment_plan"]
 
@@ -22,6 +27,7 @@ def create_conservative_debator(llm):
 
 Your task is to actively counter the arguments of the Aggressive and Neutral Analysts, highlighting where their views may overlook potential threats or fail to prioritize sustainability. Respond directly to their points, drawing from the following data sources to build a convincing case for a low-risk approach adjustment to the trader's decision:
 
+{instrument_context}
 Market Research Report: {market_research_report}
 Social Media Sentiment Report: {sentiment_report}
 Latest World Affairs Report: {news_report}
@@ -30,7 +36,7 @@ Here is the current conversation history: {history} Here is the last response fr
 
 Engage by questioning their optimism and emphasizing the potential downsides they may have overlooked. Address each of their counterpoints to showcase why a conservative stance is ultimately the safest path for the firm's assets. Focus on debating and critiquing their arguments to demonstrate the strength of a low-risk strategy over their approaches. Output conversationally as if you are speaking without any special formatting.
 
-STRICT OUTPUT RULES: Do NOT open with filler phrases ("Certainly", "Of course", "Great point", "Sure", "Absolutely", "I understand"). Begin immediately with your substantive argument. Do NOT validate or agree with the opposing analysts' risk-taking stance."""
+STRICT OUTPUT RULES: Do NOT open with filler phrases ("Certainly", "Of course", "Great point", "Sure", "Absolutely", "I understand"). Begin immediately with your substantive argument. Do NOT validate or agree with the opposing analysts' risk-taking stance.""" + get_language_instruction()
 
         response = llm.invoke(prompt)
 
