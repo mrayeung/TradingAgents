@@ -104,12 +104,13 @@ DEFAULT_CONFIG = _apply_env_overrides({
     # ---------------------------------------------------------------------------
     # NVIDIA NIM Pair configurations (free-tier; set NVIDIA_NIM_API_KEY in .env)
     # ---------------------------------------------------------------------------
-    # Pair 1 — DeepSeek via NIM:
+    # Pair 1 — DeepSeek via NIM (confirmed active free endpoints as of 2025):
+    #   NOTE: deepseek-r1 free endpoint is DEPRECATED on NIM. Use V4 Pro instead.
     #   "llm_provider":        "nvidia_nim",
-    #   "deep_think_llm":      "deepseek-ai/deepseek-r1-0528",   # V4 Pro
-    #   "quick_think_llm":     "deepseek-ai/deepseek-v3-0324",   # V4 Flash
+    #   "deep_think_llm":      "deepseek-ai/deepseek-v4-pro",    # 1M ctx, industry analysis
+    #   "quick_think_llm":     "deepseek-ai/deepseek-v4-flash",  # 284B MoE, fast agentic
     #   "debate_llm_provider": "nvidia_nim",
-    #   "debate_llm_model":    "deepseek-ai/deepseek-v3-0324",
+    #   "debate_llm_model":    "deepseek-ai/deepseek-v4-flash",
     #   "debate_backend_url":  None,
     #
     # Pair 2 — GLM via NIM:

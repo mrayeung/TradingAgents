@@ -122,6 +122,32 @@ const PROVIDER_PRESETS = [
     backend_url: null,
     key_env: "OPENAI_API_KEY",
   },
+  {
+    // NIM equivalent of "OpenRouter · DeepSeek V4":
+    //   deep  = deepseek-ai/deepseek-r1-0528  (R1 reasoning = "V4 Pro")
+    //   quick = deepseek-ai/deepseek-v3-0324  (V3 = "V4 Flash")
+    // NIM free tier: 40 RPM / 1 000 req per day. Paid tier removes the cap.
+    id: "nim-deepseek",
+    label: "NIM · DeepSeek V4 Pro / Flash",
+    llm_provider: "nvidia_nim",
+    deep_think_llm: "deepseek-ai/deepseek-v4-pro",
+    quick_think_llm: "deepseek-ai/deepseek-v4-flash",
+    backend_url: "https://integrate.api.nvidia.com/v1",
+    key_env: "NVIDIA_NIM_API_KEY",
+  },
+  {
+    // NIM equivalent of "OpenRouter · GLM-5.2":
+    //   deep  = thudm/glm-z1-32b   (32B thinking = "GLM-5.2 deep")
+    //   quick = thudm/glm-4-9b-chat (9B chat     = "GLM-4.7 Flash")
+    // Same NIM free-tier limits apply.
+    id: "nim-glm",
+    label: "NIM · GLM 5.2 / 4.7 Flash",
+    llm_provider: "nvidia_nim",
+    deep_think_llm: "thudm/glm-z1-32b",
+    quick_think_llm: "thudm/glm-4-9b-chat",
+    backend_url: "https://integrate.api.nvidia.com/v1",
+    key_env: "NVIDIA_NIM_API_KEY",
+  },
 ] as const;
 
 type PresetId = typeof PROVIDER_PRESETS[number]["id"];

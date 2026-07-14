@@ -21,6 +21,9 @@ const nextConfig = {
       "runs",
       "portfolio",
       "options",
+      "dashboard",
+      "macro",
+      "pairs",
     ];
 
     // ":path*" matches zero-or-more segments, covering both

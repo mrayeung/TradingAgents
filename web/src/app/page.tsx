@@ -441,7 +441,7 @@ export default function Dashboard() {
     setLoading(true);
     setError(null);
     try {
-      const url = `http://localhost:8765/dashboard${forceRefresh ? "?refresh=true" : ""}`;
+      const url = `/api/dashboard${forceRefresh ? "?refresh=true" : ""}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();

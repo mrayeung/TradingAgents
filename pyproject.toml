@@ -32,6 +32,11 @@ dependencies = [
     "typing-extensions>=4.14.0",
     "yfinance>=1.4.1",
     "openpyxl>=3.1.0",
+    "uvicorn>=0.34.0",
+    "fastapi>=0.115.0",
+    "sse-starlette>=2.1.0",
+    "numpy>=1.26.0",
+    "scipy>=1.13.0",
 ]
 
 [project.optional-dependencies]
@@ -48,9 +53,11 @@ bedrock = [
 
 [project.scripts]
 tradingagents = "cli.main:app"
+desk-server = "desk_server.__main__:main"
+desk-adapter = "desk_adapter.__main__:main"
 
 [tool.setuptools.packages.find]
-include = ["tradingagents*", "cli*"]
+include = ["tradingagents*", "cli*", "desk_server*", "desk_adapter*"]
 
 [tool.setuptools.package-data]
 cli = ["static/*"]

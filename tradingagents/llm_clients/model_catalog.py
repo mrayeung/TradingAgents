@@ -155,21 +155,25 @@ MODEL_OPTIONS: ProviderModeOptions = {
     "minimax-cn": _MINIMAX_MODELS,
     # ---------------------------------------------------------------------------
     # NVIDIA NIM — free-tier OpenAI-compatible API (build.nvidia.com)
-    # Model IDs use "org/model-name" format. Two free-tier pairs:
-    #   Pair 1 — DeepSeek: deepseek-ai/deepseek-r1-0528 (Pro) + deepseek-ai/deepseek-v3-0324 (Flash)
-    #   Pair 2 — GLM:      thudm/glm-z1-32b (5.2 / deep) + thudm/glm-4-9b-chat (4.7 Flash / quick)
-    # (Note: provider key "nvidia" is used by the CLI; these models appear when
-    # selecting NVIDIA NIM and overriding the default _CUSTOM_ONLY list.)
+    # Model IDs use "org/model-name" format confirmed from build.nvidia.com.
+    #
+    #   deepseek-ai/deepseek-v4-pro   — 1M ctx, MoE, deep analysis / industry research
+    #                                    thinking disabled by default (chat_template_kwargs)
+    #   deepseek-ai/deepseek-v4-flash — 284B MoE, 1M ctx, fast agentic/agent tasks
+    #                                    supports reasoning_effort:"high" for optional CoT
+    #
+    # NOTE: deepseek-ai/deepseek-r1 free endpoint is DEPRECATED on NIM as of 2025.
+    #       Use V4 Pro for heavy reasoning tasks instead.
     # ---------------------------------------------------------------------------
     "nvidia_nim": {
         "quick": [
-            ("DeepSeek V4 Flash (NIM) — fast reasoning", "deepseek-ai/deepseek-v3-0324"),
+            ("DeepSeek V4 Flash (NIM) — 284B MoE, fast agentic tasks", "deepseek-ai/deepseek-v4-flash"),
             ("GLM-4.7 Flash (NIM) — fast chat", "thudm/glm-4-9b-chat"),
             ("Custom NIM model ID", "custom"),
         ],
         "deep": [
-            ("DeepSeek V4 Pro (NIM) — flagship reasoning", "deepseek-ai/deepseek-r1-0528"),
-            ("GLM-5.2 (NIM) — deep reasoning", "thudm/glm-z1-32b"),
+            ("DeepSeek V4 Pro (NIM) — 1M ctx, industry analysis & filing extraction", "deepseek-ai/deepseek-v4-pro"),
+            ("GLM-5.2 / Z1 (NIM) — deep reasoning", "thudm/glm-z1-32b"),
             ("Custom NIM model ID", "custom"),
         ],
     },
