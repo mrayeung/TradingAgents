@@ -50,6 +50,22 @@ ANALYST_NODE_SPECS: dict[str, AnalystNodeSpec] = {
         tool_node="tools_fundamentals",
         report_key="fundamentals_report",
     ),
+    "valuation": AnalystNodeSpec(
+        key="valuation",
+        agent_node="Valuation Analyst",
+        clear_node="Msg Clear Valuation",
+        tool_node="tools_valuation",
+        report_key="valuation_report",
+    ),
+    "market_technician": AnalystNodeSpec(
+        # clear_node label must match ConditionalLogic.should_continue_market_technician,
+        # which returns "Msg Clear Market_technician" (capital M, lower technician).
+        key="market_technician",
+        agent_node="Market Technician",
+        clear_node="Msg Clear Market_technician",
+        tool_node="tools_market_technician",
+        report_key="market_technician_report",
+    ),
 }
 
 

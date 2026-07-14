@@ -12,6 +12,7 @@ from tradingagents.agents import (
     create_conservative_debator,
     create_fundamentals_analyst,
     create_market_analyst,
+    create_market_technician,
     create_msg_delete,
     create_neutral_debator,
     create_news_analyst,
@@ -92,6 +93,7 @@ class GraphSetup:
             "news": lambda: create_news_analyst(self.quick_thinking_llm),
             "fundamentals": lambda: create_fundamentals_analyst(self.quick_thinking_llm),
             "valuation": lambda: create_valuation_analyst(self.deep_thinking_llm),
+            "market_technician": lambda: create_market_technician(self.quick_thinking_llm),
         }
 
         # Create researcher and manager nodes
