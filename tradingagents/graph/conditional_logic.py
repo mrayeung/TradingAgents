@@ -77,7 +77,7 @@ class ConditionalLogic:
         return "Bull Researcher"
 
     def should_continue_risk_analysis(self, state: AgentState) -> str:
-        """Determine if risk analysis should continue."""
+        """Determine if risk analysis should continue (5-advocate mode)."""
         if (
             state["risk_debate_state"]["count"] >= 3 * self.max_risk_discuss_rounds
         ):  # 3 rounds of back-and-forth between 3 agents
@@ -87,3 +87,7 @@ class ConditionalLogic:
         if state["risk_debate_state"]["latest_speaker"].startswith("Conservative"):
             return "Neutral Analyst"
         return "Aggressive Analyst"
+
+    def should_continue_risk_analysis_3adv(self, state: AgentState) -> str:
+        """3-advocate mode: Neutral Analyst is the sole risk reviewer — go straight to PM."""
+        return "Portfolio Manager"

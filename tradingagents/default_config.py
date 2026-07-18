@@ -144,6 +144,19 @@ DEFAULT_CONFIG = _apply_env_overrides({
     # provider/SDK at its own default (usually 2). Raise it to ride out bursty
     # 429 throttling on rate-limited deployments instead of aborting a run (#1091).
     "llm_max_retries": None,
+    # Maximum output tokens per LLM call. OpenRouter (and similar credit-based
+    # providers) reserve credits based on max_tokens upfront — not actual usage.
+    # DeepSeek V4 Pro defaults to 65,536 which burns credits 8–10× faster than
+    # needed. 8192 is plenty for every node in the graph (analyst reports: 2–4K,
+    # debate turns: 1–3K, PM decision: 3–6K). Set None to use each model's own
+    # default (not recommended for OpenRouter usage-based billing).
+    "max_tokens": 8192,
+    # Parallel analyst execution: when True (default), all selected analysts
+    # run concurrently in threads — typically 3× faster than sequential.
+    # Set to False for providers with strict per-key RPM limits (NVIDIA NIM
+    # free tier, OpenRouter free models, local Ollama single-GPU rigs) where
+    # firing 3–6 simultaneous LLM calls would immediately hit 429 errors.
+    "parallel_analysts": True,
     # Checkpoint/resume: when True, LangGraph saves state after each node
     # so a crashed run can resume from the last successful step.
     "checkpoint_enabled": False,
@@ -153,7 +166,7 @@ DEFAULT_CONFIG = _apply_env_overrides({
     # Debate and discussion settings
     "max_debate_rounds": 1,
     "max_risk_discuss_rounds": 1,
-    "max_recur_limit": 600,
+    "max_recur_limit": 2000,
     # News / data fetching parameters
     # Increase for longer lookback strategies or to broaden macro coverage;
     # decrease to reduce token usage in agent prompts.

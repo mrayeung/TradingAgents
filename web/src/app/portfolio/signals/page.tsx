@@ -75,46 +75,116 @@ function elapsed(ms: number) {
 
 // ─── New Analysis Panel ───────────────────────────────────────────────────────
 
-// ─── OpenRouter model catalogue ───────────────────────────────────────────────
-// All runs route through OpenRouter (OPENROUTER_API_KEY covers every family).
-// Mix freely: Sol Pro deep + Gemini 3.5 Flash quick works in one run.
-// IDs verified against openrouter.ai/api/v1/models 2026-07-17.
-// ~ prefix = latest-alias (auto-updates to newest release of that family).
+// ─── Provider + model catalogue ───────────────────────────────────────────────
+// Each provider drives llm_provider in the run config, which the backend uses
+// to select the correct LLM client (OpenAI-compat, Google, NVIDIA NIM, etc.).
+//
+// parallelSafe = provider / model can handle 3–6 simultaneous LLM calls without
+// hitting rate limits.  Free-tier and NIM free endpoints are NOT parallel-safe.
 
-const OR_MODELS = [
-  // ── OpenAI ── (all verified on OR 2026-07-17)
-  { id: "openai/gpt-5.6-sol-pro",         label: "OpenAI  ·  GPT-5.6 Sol Pro" },
-  { id: "openai/gpt-5.6-sol",             label: "OpenAI  ·  GPT-5.6 Sol" },
-  { id: "openai/gpt-5.6-terra-pro",       label: "OpenAI  ·  GPT-5.6 Terra Pro" },
-  { id: "openai/gpt-5.6-terra",           label: "OpenAI  ·  GPT-5.6 Terra (Terri)" },
-  { id: "openai/gpt-5.6-luna-pro",        label: "OpenAI  ·  GPT-5.6 Luna Pro" },
-  { id: "openai/gpt-5.6-luna",            label: "OpenAI  ·  GPT-5.6 Luna" },
-  { id: "openai/gpt-5.4-pro",             label: "OpenAI  ·  GPT-5.4 Pro" },
-  { id: "openai/gpt-5-mini",              label: "OpenAI  ·  GPT-5 Mini" },
-  // ── Anthropic ── (verified; note dot notation: opus-4.8 not opus-4-8)
-  { id: "anthropic/claude-opus-4.8",      label: "Anthropic  ·  Claude Opus 4.8" },
-  { id: "anthropic/claude-opus-4.8-fast", label: "Anthropic  ·  Claude Opus 4.8 Fast" },
-  { id: "anthropic/claude-fable-5",       label: "Anthropic  ·  Fable 5" },
-  { id: "anthropic/claude-sonnet-5",      label: "Anthropic  ·  Claude Sonnet 5" },
-  { id: "~anthropic/claude-haiku-latest", label: "Anthropic  ·  Claude Haiku (latest)" },
-  // ── Google ── (verified on OR 2026-07-17)
-  { id: "google/gemini-3.5-flash",        label: "Google  ·  Gemini 3.5 Flash" },
-  { id: "google/gemini-3.1-flash-lite",   label: "Google  ·  Gemini 3.1 Flash Lite" },
-  { id: "google/gemini-2.5-pro",          label: "Google  ·  Gemini 2.5 Pro" },
-  { id: "google/gemini-2.5-flash",        label: "Google  ·  Gemini 2.5 Flash" },
-  // ── DeepSeek ── (verified via openrouter.ai/deepseek/deepseek-v4-pro|flash)
-  { id: "deepseek/deepseek-v4-pro",       label: "DeepSeek  ·  V4 Pro" },
-  { id: "deepseek/deepseek-v4-flash",     label: "DeepSeek  ·  V4 Flash" },
-  // ── Moonshot ── (verified via openrouter.ai/moonshotai/kimi-k3)
-  { id: "moonshotai/kimi-k3",                    label: "Moonshot  ·  Kimi K3" },
-  { id: "moonshotai/kimi-k2.7-code",             label: "Moonshot  ·  Kimi K2.7 Code" },
-  // ── Meta Llama (via NIM / OR) ──
-  { id: "meta-llama/llama-3.1-405b-instruct",    label: "Meta  ·  Llama 3.1 405B" },
-  { id: "meta-llama/llama-4-scout",              label: "Meta  ·  Llama 4 Scout" },
-  // ── Free tier ── (rate-limited, no credits consumed)
-  { id: "deepseek/deepseek-r1:free",             label: "DeepSeek  ·  R1 (free)" },
-  { id: "google/gemini-2.5-flash:free",          label: "Google  ·  Gemini 2.5 Flash (free)" },
-] as const;
+interface ModelEntry { id: string; label: string; parallelSafe: boolean; }
+
+interface ProviderDef {
+  label:           string;    // display name in the tab strip
+  apiKeyEnv:       string;    // .env key the server needs
+  backendUrl:      string | null;  // forwarded as backend_url (null = provider default)
+  parallelDefault: boolean;   // default parallel toggle for this provider
+  deepDefault:     string;    // initial deep-model selection
+  quickDefault:    string;    // initial quick-model selection
+  models:          ModelEntry[];
+}
+
+const PROVIDER_CATALOG: Record<string, ProviderDef> = {
+
+  // ── OpenRouter ── (one API key covers every model family)
+  openrouter: {
+    label: "OpenRouter", apiKeyEnv: "OPENROUTER_API_KEY",
+    backendUrl: "https://openrouter.ai/api/v1",
+    parallelDefault: true,
+    deepDefault:  "openai/gpt-5.6-sol-pro",
+    quickDefault: "google/gemini-3.5-flash",
+    models: [
+      // Paid → parallel-safe (OR pool is 200+ RPM per key)
+      { id: "openai/gpt-5.6-sol-pro",         label: "OpenAI  ·  GPT-5.6 Sol Pro",        parallelSafe: true },
+      { id: "openai/gpt-5.6-sol",             label: "OpenAI  ·  GPT-5.6 Sol",            parallelSafe: true },
+      { id: "openai/gpt-5.6-terra-pro",       label: "OpenAI  ·  GPT-5.6 Terra Pro",      parallelSafe: true },
+      { id: "openai/gpt-5.6-terra",           label: "OpenAI  ·  GPT-5.6 Terra",          parallelSafe: true },
+      { id: "openai/gpt-5.6-luna-pro",        label: "OpenAI  ·  GPT-5.6 Luna Pro",       parallelSafe: true },
+      { id: "openai/gpt-5.6-luna",            label: "OpenAI  ·  GPT-5.6 Luna",           parallelSafe: true },
+      { id: "openai/gpt-5.4-pro",             label: "OpenAI  ·  GPT-5.4 Pro",            parallelSafe: true },
+      { id: "openai/gpt-5-mini",              label: "OpenAI  ·  GPT-5 Mini",             parallelSafe: true },
+      { id: "anthropic/claude-opus-4.8",      label: "Anthropic  ·  Claude Opus 4.8",     parallelSafe: true },
+      { id: "anthropic/claude-opus-4.8-fast", label: "Anthropic  ·  Claude Opus 4.8 Fast",parallelSafe: true },
+      { id: "anthropic/claude-fable-5",       label: "Anthropic  ·  Fable 5",             parallelSafe: true },
+      { id: "anthropic/claude-sonnet-5",      label: "Anthropic  ·  Claude Sonnet 5",     parallelSafe: true },
+      { id: "~anthropic/claude-haiku-latest", label: "Anthropic  ·  Claude Haiku (latest)",parallelSafe: true },
+      { id: "google/gemini-3.5-flash",        label: "Google  ·  Gemini 3.5 Flash",       parallelSafe: true },
+      { id: "google/gemini-3.1-flash-lite",   label: "Google  ·  Gemini 3.1 Flash Lite",  parallelSafe: true },
+      { id: "google/gemini-2.5-pro",          label: "Google  ·  Gemini 2.5 Pro",         parallelSafe: true },
+      { id: "google/gemini-2.5-flash",        label: "Google  ·  Gemini 2.5 Flash",       parallelSafe: true },
+      { id: "deepseek/deepseek-v4-pro",       label: "DeepSeek  ·  V4 Pro",               parallelSafe: true },
+      { id: "deepseek/deepseek-v4-flash",     label: "DeepSeek  ·  V4 Flash",             parallelSafe: true },
+      { id: "moonshotai/kimi-k3",             label: "Moonshot  ·  Kimi K3",              parallelSafe: true },
+      { id: "moonshotai/kimi-k2.7-code",      label: "Moonshot  ·  Kimi K2.7 Code",       parallelSafe: true },
+      { id: "meta-llama/llama-3.1-405b-instruct", label: "Meta  ·  Llama 3.1 405B",       parallelSafe: true },
+      { id: "meta-llama/llama-4-scout",       label: "Meta  ·  Llama 4 Scout",            parallelSafe: true },
+      // Free tier → sequential only (10–20 RPM, no credits consumed)
+      { id: "deepseek/deepseek-r1:free",      label: "DeepSeek  ·  R1 (free) ⚠",         parallelSafe: false },
+    ],
+  },
+
+  // ── OpenAI Direct ── (OPENAI_API_KEY; 3 500+ RPM — always parallel-safe)
+  openai: {
+    label: "OpenAI Direct", apiKeyEnv: "OPENAI_API_KEY",
+    backendUrl: null,
+    parallelDefault: true,
+    deepDefault:  "gpt-4o",
+    quickDefault: "gpt-4o-mini",
+    models: [
+      { id: "gpt-4o",        label: "GPT-4o",          parallelSafe: true },
+      { id: "gpt-4o-mini",   label: "GPT-4o Mini",     parallelSafe: true },
+      { id: "gpt-4.1",       label: "GPT-4.1",         parallelSafe: true },
+      { id: "gpt-4.1-mini",  label: "GPT-4.1 Mini",    parallelSafe: true },
+      { id: "o3",            label: "o3 (reasoning)",   parallelSafe: true },
+      { id: "o4-mini",       label: "o4-mini (reasoning)", parallelSafe: true },
+    ],
+  },
+
+  // ── Google Direct ── (GOOGLE_API_KEY; paid Flash ≥ 1 000 RPM → parallel-safe)
+  google: {
+    label: "Google Direct", apiKeyEnv: "GOOGLE_API_KEY",
+    backendUrl: null,
+    parallelDefault: true,
+    deepDefault:  "gemini-2.5-pro",
+    quickDefault: "gemini-2.5-flash",
+    models: [
+      { id: "gemini-2.5-pro",          label: "Gemini 2.5 Pro (paid)",             parallelSafe: true  },
+      { id: "gemini-2.5-flash",        label: "Gemini 2.5 Flash (paid)",           parallelSafe: true  },
+      { id: "gemini-2.0-flash-exp",    label: "Gemini 2.0 Flash Exp (free ⚠)",     parallelSafe: false },
+      { id: "gemini-1.5-flash",        label: "Gemini 1.5 Flash (paid)",           parallelSafe: true  },
+      { id: "gemini-1.5-flash-8b",     label: "Gemini 1.5 Flash-8B (free tier ⚠)", parallelSafe: false },
+    ],
+  },
+
+  // ── NVIDIA NIM ── (NVIDIA_NIM_API_KEY; free-tier ~5 RPM → sequential only)
+  nvidia_nim: {
+    label: "NVIDIA NIM", apiKeyEnv: "NVIDIA_NIM_API_KEY",
+    backendUrl: null,   // backend registry sets https://integrate.api.nvidia.com/v1
+    parallelDefault: false,
+    deepDefault:  "meta-llama/llama-3.1-405b-instruct",
+    quickDefault: "meta-llama/llama-3.1-70b-instruct",
+    models: [
+      { id: "meta-llama/llama-3.1-405b-instruct", label: "Llama 3.1 405B",          parallelSafe: false },
+      { id: "meta-llama/llama-3.1-70b-instruct",  label: "Llama 3.1 70B",           parallelSafe: false },
+      { id: "meta-llama/llama-4-scout",            label: "Llama 4 Scout",           parallelSafe: false },
+      { id: "deepseek-ai/deepseek-v4-flash",       label: "DeepSeek V4 Flash",       parallelSafe: false },
+      { id: "deepseek-ai/deepseek-v4-pro",         label: "DeepSeek V4 Pro",         parallelSafe: false },
+    ],
+  },
+
+} as const;
+
+type ProviderId = keyof typeof PROVIDER_CATALOG;
 
 const MAX_TICKERS = 6;
 
@@ -140,8 +210,23 @@ function NewAnalysisPanel({
   const [tradeDate, setTradeDate] = useState(new Date().toISOString().split("T")[0]);
   const [selectedAnalysts, setSelectedAnalysts] = useState(ALL_ANALYSTS.map(a => a.key));
   // Both models route through OpenRouter (OPENROUTER_API_KEY)
-  const [deepModel, setDeepModel] = useState("openai/gpt-5.6-sol-pro");
-  const [quickModel, setQuickModel] = useState("openai/gpt-5.6-sol");
+  const [llmProvider, setLlmProvider] = useState<ProviderId>("openrouter");
+  const [deepModel,  setDeepModel]  = useState(PROVIDER_CATALOG.openrouter.deepDefault);
+  const [quickModel, setQuickModel] = useState(PROVIDER_CATALOG.openrouter.quickDefault);
+  const [debateMode, setDebateMode] = useState<"5" | "3">("5");
+  const [parallelAnalysts, setParallelAnalysts] = useState(true);
+  // Track whether the user manually overrode the auto-sync; if so don't override again
+  // until they switch provider (which resets intent).
+  const parallelUserOverride = useRef(false);
+
+  // Auto-sync parallel toggle when provider or model selection changes.
+  useEffect(() => {
+    if (parallelUserOverride.current) return;
+    const prov = PROVIDER_CATALOG[llmProvider];
+    const deepSafe  = prov.models.find(m => m.id === deepModel)?.parallelSafe  ?? prov.parallelDefault;
+    const quickSafe = prov.models.find(m => m.id === quickModel)?.parallelSafe ?? prov.parallelDefault;
+    setParallelAnalysts(deepSafe && quickSafe);
+  }, [deepModel, quickModel, llmProvider]);
   const [loading, setLoading] = useState(false);
   const [startedCount, setStartedCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -165,14 +250,22 @@ function NewAnalysisPanel({
     setLoading(true);
     setStartedCount(0);
     setError(null);
-    const baseConfig = {
+    const provDef = PROVIDER_CATALOG[llmProvider];
+    const baseConfig: Record<string, unknown> = {
       trade_date: tradeDate,
       analysts: selectedAnalysts,
-      llm_provider: "openrouter",
-      backend_url: "https://openrouter.ai/api/v1",
+      llm_provider: llmProvider,
       deep_think_llm: deepModel,
       quick_think_llm: quickModel,
+      debate_mode: debateMode,
+      parallel_analysts: parallelAnalysts,
     };
+    // backend_url is only sent when the provider needs an explicit override;
+    // null means "use the provider registry default" (OpenAI, Google, NIM all
+    // have their endpoints hardcoded in the client registry).
+    if (provDef.backendUrl != null) {
+      baseConfig.backend_url = provDef.backendUrl;
+    }
     try {
       for (const t of tickers) {
         const res = await api.startRun({ ...baseConfig, ticker: t });
@@ -268,44 +361,155 @@ function NewAnalysisPanel({
         </div>
       </div>
 
-      {/* ── Model Selection (OpenRouter) ── */}
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <label className="text-xs text-slate-400">Models</label>
-          <span className="text-[10px] font-mono text-slate-600">via OpenRouter · OPENROUTER_API_KEY</span>
+      {/* ── Provider + Model Selection ── */}
+      <div className="space-y-3">
+        {/* Provider tab strip */}
+        <div>
+          <label className="text-xs text-slate-400 block mb-2">Provider</label>
+          <div className="flex flex-wrap gap-1.5">
+            {(Object.entries(PROVIDER_CATALOG) as [ProviderId, ProviderDef][]).map(([key, prov]) => (
+              <button
+                key={key}
+                onClick={() => {
+                  parallelUserOverride.current = false;   // reset override on provider switch
+                  setLlmProvider(key);
+                  setDeepModel(prov.deepDefault);
+                  setQuickModel(prov.quickDefault);
+                }}
+                className={clsx(
+                  "px-3 py-1 rounded-lg text-xs font-medium transition-colors",
+                  llmProvider === key
+                    ? "bg-sky-700 text-white"
+                    : "bg-slate-700 text-slate-400 hover:bg-slate-600"
+                )}
+              >
+                {prov.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-[10px] text-slate-600 mt-1">
+            Needs <code className="text-sky-500">{PROVIDER_CATALOG[llmProvider].apiKeyEnv}</code> in your <code className="text-sky-500">.env</code>
+            {llmProvider === "nvidia_nim" && " · free-tier models: ~5 RPM → use Sequential mode"}
+          </p>
         </div>
+
+        {/* Deep + Quick model dropdowns, filtered to the active provider */}
         <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-xs text-slate-500 block mb-1.5">
-              🧠 Deep reasoning
-              <span className="text-slate-600 ml-1 font-normal">(analysts · manager)</span>
-            </label>
-            <select
-              value={deepModel}
-              onChange={e => setDeepModel(e.target.value)}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-violet-300 text-xs font-mono focus:outline-none focus:border-violet-500 cursor-pointer"
-            >
-              {OR_MODELS.map(m => (
-                <option key={m.id} value={m.id}>{m.label}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="text-xs text-slate-500 block mb-1.5">
-              ⚡ Quick think
-              <span className="text-slate-600 ml-1 font-normal">(tools · debate)</span>
-            </label>
-            <select
-              value={quickModel}
-              onChange={e => setQuickModel(e.target.value)}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sky-300 text-xs font-mono focus:outline-none focus:border-sky-500 cursor-pointer"
-            >
-              {OR_MODELS.map(m => (
-                <option key={m.id} value={m.id}>{m.label}</option>
-              ))}
-            </select>
-          </div>
+          {(["deep", "quick"] as const).map(role => {
+            const isDeep   = role === "deep";
+            const value    = isDeep ? deepModel : quickModel;
+            const onChange = isDeep
+              ? (id: string) => setDeepModel(id)
+              : (id: string) => setQuickModel(id);
+            const models   = PROVIDER_CATALOG[llmProvider].models;
+            const safeModels = models.filter(m => m.parallelSafe);
+            const slowModels = models.filter(m => !m.parallelSafe);
+
+            return (
+              <div key={role}>
+                <label className="text-xs text-slate-500 block mb-1.5">
+                  {isDeep ? "🧠 Deep reasoning" : "⚡ Quick think"}
+                  <span className="text-slate-600 ml-1 font-normal">
+                    {isDeep ? "(analysts · manager)" : "(tools · debate)"}
+                  </span>
+                </label>
+                <select
+                  value={value}
+                  onChange={e => onChange(e.target.value)}
+                  className={clsx(
+                    "w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none cursor-pointer",
+                    isDeep ? "text-violet-300 focus:border-violet-500" : "text-sky-300 focus:border-sky-500"
+                  )}
+                >
+                  {safeModels.length > 0 && slowModels.length > 0 ? (
+                    <>
+                      <optgroup label="⚡ Parallel-safe">
+                        {safeModels.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+                      </optgroup>
+                      <optgroup label="🔁 Sequential only">
+                        {slowModels.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+                      </optgroup>
+                    </>
+                  ) : (
+                    models.map(m => <option key={m.id} value={m.id}>{m.label}</option>)
+                  )}
+                </select>
+              </div>
+            );
+          })}
         </div>
+      </div>
+
+      {/* ── Advocate Mode ── */}
+      <div>
+        <label className="text-xs text-slate-400 block mb-2">Advocate Mode</label>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setDebateMode("5")}
+            className={clsx(
+              "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
+              debateMode === "5"
+                ? "bg-violet-700 text-white"
+                : "bg-slate-700 text-slate-400 hover:bg-slate-600"
+            )}
+          >
+            ⚔️ 5 Advocates
+            <span className="ml-1.5 font-normal opacity-70">Bull · Bear · Agg · Con · Neutral</span>
+          </button>
+          <button
+            onClick={() => setDebateMode("3")}
+            className={clsx(
+              "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
+              debateMode === "3"
+                ? "bg-violet-700 text-white"
+                : "bg-slate-700 text-slate-400 hover:bg-slate-600"
+            )}
+          >
+            ⚡ 3 Advocates
+            <span className="ml-1.5 font-normal opacity-70">Bull · Bear · Neutral</span>
+          </button>
+        </div>
+        <p className="text-[10px] text-slate-600 mt-1.5">
+          {debateMode === "3"
+            ? "Skips Aggressive & Conservative risk analysts — ~40% fewer tokens, modest quality trade-off"
+            : "Full risk debate across all 3 risk advocates — highest quality, more tokens"}
+        </p>
+      </div>
+
+      {/* ── Analyst Execution Mode ── */}
+      <div>
+        <label className="text-xs text-slate-400 block mb-2">Analyst Execution</label>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => { parallelUserOverride.current = true; setParallelAnalysts(true); }}
+            className={clsx(
+              "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
+              parallelAnalysts
+                ? "bg-emerald-700 text-white"
+                : "bg-slate-700 text-slate-400 hover:bg-slate-600"
+            )}
+          >
+            ⚡ Parallel
+            <span className="ml-1.5 font-normal opacity-70">All analysts at once</span>
+          </button>
+          <button
+            onClick={() => { parallelUserOverride.current = true; setParallelAnalysts(false); }}
+            className={clsx(
+              "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
+              !parallelAnalysts
+                ? "bg-emerald-700 text-white"
+                : "bg-slate-700 text-slate-400 hover:bg-slate-600"
+            )}
+          >
+            🔁 Sequential
+            <span className="ml-1.5 font-normal opacity-70">One at a time</span>
+          </button>
+        </div>
+        <p className="text-[10px] text-slate-600 mt-1.5">
+          {parallelAnalysts
+            ? "Analysts run concurrently — ~3× faster. Use with paid API tiers (OpenAI, Gemini, OpenRouter paid)."
+            : "Analysts run one at a time — safer for low-RPM providers (NVIDIA NIM free, local Ollama)."}
+        </p>
       </div>
 
       {/* ── Debate model — server-configured, shown read-only ── */}
@@ -314,7 +518,9 @@ function NewAnalysisPanel({
         <span className="text-xs font-mono text-slate-300 ml-1">
           set via <code className="text-sky-400">TRADINGAGENTS_DEBATE_LLM_MODEL</code>
         </span>
-        <span className="text-xs text-slate-500 ml-auto">all 5 advocate nodes share one model</span>
+        <span className="text-xs text-slate-500 ml-auto">
+          {debateMode === "3" ? "3" : "5"} advocate nodes share one model
+        </span>
       </div>
 
       {error && (
@@ -402,7 +608,12 @@ function ActiveRunsBanner({
                run.status === "cancelled" ? "Cancelled" : run.status}
             </span>
 
-            <span className="text-xs text-slate-500 ml-auto">{elapsed(now - run.startedAt)}</span>
+            {/* Show final duration for completed runs, live clock while running */}
+            <span className="text-xs text-slate-500 ml-auto">
+              {isDone && run.completedAt
+                ? `⏱ ${elapsed(run.completedAt - run.startedAt)}`
+                : elapsed(now - run.startedAt)}
+            </span>
 
             {isDone && (
               <button
@@ -461,10 +672,12 @@ export default function SignalsPage() {
             const res = await fetch(`/api/runs/${run.runId}/state`);
             if (!res.ok) return run;
             const state = await res.json();
+            const nowDone = (state.status === "done" || state.status === "error") && run.status !== state.status;
             return {
               ...run,
               status: state.status as ActiveRun["status"],
               ...(state.error_message && { errorMessage: state.error_message }),
+              ...(nowDone && !run.completedAt && { completedAt: Date.now() }),
             };
           } catch {
             return run;

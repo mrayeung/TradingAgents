@@ -27,6 +27,7 @@ from tradingagents.agents.utils.agent_states import AgentState
 
 from .analyst_execution import build_analyst_execution_plan
 from .conditional_logic import ConditionalLogic
+from .parallel_analysts import create_parallel_analysts_node
 
 # Every target a shared conditional router can return. Each edge driven by the
 # router maps all of them, so a fall-through return (e.g. under prompt/i18n/
@@ -75,7 +76,10 @@ class GraphSetup:
         self.conditional_logic = conditional_logic
 
     def setup_graph(
-        self, selected_analysts=("market", "social", "news", "fundamentals")
+        self,
+        selected_analysts=("market", "social", "news", "fundamentals"),
+        debate_mode: str = "5",
+        parallel_analysts: bool = True,
     ):
         """Set up and compile the agent workflow graph.
 
@@ -85,6 +89,14 @@ class GraphSetup:
                 - "social": Social media analyst
                 - "news": News analyst
                 - "fundamentals": Fundamentals analyst
+            debate_mode (str): "5" for the full 5-advocate risk debate
+                (Aggressive → Conservative → Neutral), or "3" to use only the
+                Neutral Analyst as the single risk reviewer (faster, lower cost).
+            parallel_analysts (bool): When True (default), all selected analysts
+                run concurrently in threads — ~3× faster.  Set to False for
+                providers with strict per-key RPM limits (NVIDIA NIM free tier,
+                OpenRouter free models, local Ollama) where simultaneous calls
+                would trigger 429 errors.
         """
         plan = build_analyst_execution_plan(selected_analysts)
 
@@ -115,51 +127,66 @@ class GraphSetup:
         # Create workflow
         workflow = StateGraph(AgentState)
 
-        # Add analyst nodes to the graph
-        for spec in plan.specs:
-            workflow.add_node(spec.agent_node, analyst_factories[spec.key]())
-            workflow.add_node(spec.clear_node, create_msg_delete())
-            workflow.add_node(spec.tool_node, self.tool_nodes[spec.key])
-
         # Quantitative Analyst (Markov 2.0) runs once at the front of every graph,
         # independent of the selected-analyst plan, and feeds a regime/edge signal
         # into the debate and decision agents via ``quantitative_report``.
         workflow.add_node("Quantitative Analyst", create_quantitative_analyst())
+
+        if parallel_analysts:
+            # ── Parallel mode (default) ──────────────────────────────────────
+            # All selected analysts fire concurrently in threads; each writes to
+            # its own dedicated report field so state merges are conflict-free.
+            # Recommended for: OpenAI, Anthropic, Google Gemini, OpenRouter (paid).
+            parallel_node = create_parallel_analysts_node(
+                plan=plan,
+                analyst_factories=analyst_factories,
+                tool_nodes=self.tool_nodes,
+            )
+            workflow.add_node("Parallel Analysts", parallel_node)
+        else:
+            # ── Sequential mode ──────────────────────────────────────────────
+            # Analysts run one at a time in the plan order. Safer for providers
+            # with low per-key RPM (NVIDIA NIM free tier, local Ollama, etc.).
+            for spec in plan.specs:
+                workflow.add_node(spec.agent_node, analyst_factories[spec.key]())
+                workflow.add_node(spec.clear_node, create_msg_delete())
+                workflow.add_node(spec.tool_node, self.tool_nodes[spec.key])
 
         # Add other nodes
         workflow.add_node("Bull Researcher", bull_researcher_node)
         workflow.add_node("Bear Researcher", bear_researcher_node)
         workflow.add_node("Research Manager", research_manager_node)
         workflow.add_node("Trader", trader_node)
-        workflow.add_node("Aggressive Analyst", aggressive_analyst)
-        workflow.add_node("Neutral Analyst", neutral_analyst)
-        workflow.add_node("Conservative Analyst", conservative_analyst)
+        # Risk-phase nodes: 5-advocate mode adds all three; 3-advocate mode adds Neutral only
+        if debate_mode == "3":
+            workflow.add_node("Neutral Analyst", neutral_analyst)
+        else:
+            workflow.add_node("Aggressive Analyst", aggressive_analyst)
+            workflow.add_node("Conservative Analyst", conservative_analyst)
+            workflow.add_node("Neutral Analyst", neutral_analyst)
         workflow.add_node("Portfolio Manager", portfolio_manager_node)
 
         # Define edges
-        # Quantitative Analyst (Markov 2.0) runs first, then the analyst chain.
         workflow.add_edge(START, "Quantitative Analyst")
-        workflow.add_edge("Quantitative Analyst", plan.specs[0].agent_node)
 
-        # Connect analysts in sequence
-        for i, spec in enumerate(plan.specs):
-            current_analyst = spec.agent_node
-            current_tools = spec.tool_node
-            current_clear = spec.clear_node
-
-            # Add conditional edges for current analyst
-            workflow.add_conditional_edges(
-                current_analyst,
-                getattr(self.conditional_logic, f"should_continue_{spec.key}"),
-                [current_tools, current_clear],
-            )
-            workflow.add_edge(current_tools, current_analyst)
-
-            # Connect to next analyst or to Bull Researcher if this is the last analyst
-            if i < len(plan.specs) - 1:
-                workflow.add_edge(current_clear, plan.specs[i + 1].agent_node)
-            else:
-                workflow.add_edge(current_clear, "Bull Researcher")
+        if parallel_analysts:
+            # Parallel mode: Quant → Parallel Analysts (all at once) → Bull
+            workflow.add_edge("Quantitative Analyst", "Parallel Analysts")
+            workflow.add_edge("Parallel Analysts", "Bull Researcher")
+        else:
+            # Sequential mode: Quant → first analyst → … → last analyst → Bull
+            workflow.add_edge("Quantitative Analyst", plan.specs[0].agent_node)
+            for i, spec in enumerate(plan.specs):
+                workflow.add_conditional_edges(
+                    spec.agent_node,
+                    getattr(self.conditional_logic, f"should_continue_{spec.key}"),
+                    [spec.tool_node, spec.clear_node],
+                )
+                workflow.add_edge(spec.tool_node, spec.agent_node)
+                if i < len(plan.specs) - 1:
+                    workflow.add_edge(spec.clear_node, plan.specs[i + 1].agent_node)
+                else:
+                    workflow.add_edge(spec.clear_node, "Bull Researcher")
 
         # Both research-debate edges share the complete DEBATE_PATH_MAP (#1088).
         for debate_node in ("Bull Researcher", "Bear Researcher"):
@@ -169,14 +196,25 @@ class GraphSetup:
                 DEBATE_PATH_MAP,
             )
         workflow.add_edge("Research Manager", "Trader")
-        workflow.add_edge("Trader", "Aggressive Analyst")
-        # All three risk edges share the complete RISK_ANALYSIS_PATH_MAP (#1088).
-        for risk_node in ("Aggressive Analyst", "Conservative Analyst", "Neutral Analyst"):
+        if debate_mode == "3":
+            # 3-advocate mode: Neutral Analyst is the sole risk reviewer.
+            # Trader → Neutral Analyst → Portfolio Manager (single pass, no rotation).
+            workflow.add_edge("Trader", "Neutral Analyst")
             workflow.add_conditional_edges(
-                risk_node,
-                self.conditional_logic.should_continue_risk_analysis,
-                RISK_ANALYSIS_PATH_MAP,
+                "Neutral Analyst",
+                self.conditional_logic.should_continue_risk_analysis_3adv,
+                {"Portfolio Manager": "Portfolio Manager"},
             )
+        else:
+            # 5-advocate mode: full Aggressive → Conservative → Neutral rotation.
+            workflow.add_edge("Trader", "Aggressive Analyst")
+            # All three risk edges share the complete RISK_ANALYSIS_PATH_MAP (#1088).
+            for risk_node in ("Aggressive Analyst", "Conservative Analyst", "Neutral Analyst"):
+                workflow.add_conditional_edges(
+                    risk_node,
+                    self.conditional_logic.should_continue_risk_analysis,
+                    RISK_ANALYSIS_PATH_MAP,
+                )
 
         workflow.add_edge("Portfolio Manager", END)
 

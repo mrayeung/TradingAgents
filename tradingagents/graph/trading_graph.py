@@ -169,7 +169,13 @@ class TradingAgentsGraph:
         self.selected_analysts = tuple(selected_analysts)
 
         # Set up the graph: keep the workflow for recompilation with a checkpointer.
-        self.workflow = self.graph_setup.setup_graph(selected_analysts)
+        debate_mode = str(self.config.get("debate_mode", "5"))
+        parallel_analysts = bool(self.config.get("parallel_analysts", True))
+        self.workflow = self.graph_setup.setup_graph(
+            selected_analysts,
+            debate_mode=debate_mode,
+            parallel_analysts=parallel_analysts,
+        )
         self.graph = self.workflow.compile()
         self._checkpointer_ctx = None
 
@@ -411,13 +417,15 @@ class TradingAgentsGraph:
         """Graph-shape inputs that must invalidate a checkpoint if changed.
 
         Keyed into the checkpoint thread ID so a resume under a different analyst
-        selection, debate/risk depth, or asset mode starts fresh instead of
-        silently continuing the previous graph (#1089).
+        selection, debate/risk depth, advocate mode, or asset mode starts fresh
+        instead of silently continuing the previous graph (#1089).
         """
         return "|".join([
             "analysts=" + ",".join(self.selected_analysts),
             f"debate={self.config['max_debate_rounds']}",
             f"risk={self.config['max_risk_discuss_rounds']}",
+            f"advocate_mode={self.config.get('debate_mode', '5')}",
+            f"parallel_analysts={str(self.config.get('parallel_analysts', True)).lower()}",
             f"asset={asset_type}",
         ])
 
