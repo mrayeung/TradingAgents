@@ -1,0 +1,39 @@
+# OpenBB ODP sidecar — runs UNMODIFIED as its own container (AGPL-safe aggregation).
+# desk-server talks to it only over HTTP at http://openbb:8000/api/v1/... — no
+# OpenBB code is imported into the proprietary backend.
+#
+# Usage (merge with the base compose):
+#   docker compose -f docker-compose.yml -f docker-compose.openbb.yml up -d --build openbb
+#
+# Swagger UI for exploring endpoints:  http://127.0.0.1:6900/docs
+services:
+  openbb:
+    # Pin a released image tag rather than :latest so the AGPL boundary is a
+    # fixed, unmodified upstream artifact.
+    image: ghcr.io/openbb-finance/openbb-platform:latest
+    container_name: oasis-openbb-sidecar
+    command: >
+      uvicorn openbb_core.api.rest_api:app
+      --host 0.0.0.0 --port 8000
+    environment:
+      # Bring-your-own provider keys. Seeking Alpha (estimates/calendar) is
+      # keyless; fmp/intrinio are optional paid upgrades.
+      OPENBB_API_AUTH: "false"          # internal network only; not exposed publicly
+      FMP_API_KEY: ${FMP_API_KEY:-}
+    volumes:
+      # Persist ~/.openbb_platform/user_settings.json (provider credentials).
+      - openbb_settings:/root/.openbb_platform
+    ports:
+      # Expose ONLY to localhost for dev/demo (Swagger + direct calls). In prod
+      # you can drop this and keep it internal-network-only.
+      - "127.0.0.1:6900:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/coverage/providers')"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  openbb_settings:

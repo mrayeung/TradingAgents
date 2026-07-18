@@ -4,6 +4,7 @@ import time
 from collections import deque
 from functools import wraps
 from pathlib import Path
+from typing import Optional
 
 import typer
 from rich import box

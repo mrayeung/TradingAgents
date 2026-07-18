@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import Link from "next/link";
 import { api, SignalRow } from "@/lib/api";
 import { usePortfolioStore, ActiveRun } from "@/lib/portfolio-store";
 import clsx from "clsx";
@@ -74,83 +75,46 @@ function elapsed(ms: number) {
 
 // ─── New Analysis Panel ───────────────────────────────────────────────────────
 
-// ─── LLM provider presets ─────────────────────────────────────────────────────
+// ─── OpenRouter model catalogue ───────────────────────────────────────────────
+// All runs route through OpenRouter (OPENROUTER_API_KEY covers every family).
+// Mix freely: Sol Pro deep + Gemini 3.5 Flash quick works in one run.
+// IDs verified against openrouter.ai/api/v1/models 2026-07-17.
+// ~ prefix = latest-alias (auto-updates to newest release of that family).
 
-const PROVIDER_PRESETS = [
-  {
-    id: "openrouter-gemini",
-    label: "OpenRouter · Gemini 2.5",
-    llm_provider: "openrouter",
-    deep_think_llm: "google/gemini-2.5-pro",
-    quick_think_llm: "google/gemini-2.5-flash",
-    backend_url: "https://openrouter.ai/api/v1",
-    key_env: "OPENROUTER_API_KEY",
-  },
-  {
-    id: "openrouter-claude",
-    label: "OpenRouter · Claude Sonnet",
-    llm_provider: "openrouter",
-    deep_think_llm: "anthropic/claude-sonnet-4-5",
-    quick_think_llm: "anthropic/claude-haiku-4-5",
-    backend_url: "https://openrouter.ai/api/v1",
-    key_env: "OPENROUTER_API_KEY",
-  },
-  {
-    id: "openrouter-deepseek",
-    label: "OpenRouter · DeepSeek V4",
-    llm_provider: "openrouter",
-    deep_think_llm: "deepseek/deepseek-v4-pro",
-    quick_think_llm: "deepseek/deepseek-v4-flash",
-    backend_url: "https://openrouter.ai/api/v1",
-    key_env: "OPENROUTER_API_KEY",
-  },
-  {
-    id: "openrouter-glm",
-    label: "OpenRouter · GLM-5.2",
-    llm_provider: "openrouter",
-    deep_think_llm: "z-ai/glm-5.2",
-    quick_think_llm: "deepseek/deepseek-v4-flash",
-    backend_url: "https://openrouter.ai/api/v1",
-    key_env: "OPENROUTER_API_KEY",
-  },
-  {
-    id: "openai",
-    label: "OpenAI · GPT-5",
-    llm_provider: "openai",
-    deep_think_llm: "gpt-5.5",
-    quick_think_llm: "gpt-5.4-mini",
-    backend_url: null,
-    key_env: "OPENAI_API_KEY",
-  },
-  {
-    // NIM equivalent of "OpenRouter · DeepSeek V4":
-    //   deep  = deepseek-ai/deepseek-r1-0528  (R1 reasoning = "V4 Pro")
-    //   quick = deepseek-ai/deepseek-v3-0324  (V3 = "V4 Flash")
-    // NIM free tier: 40 RPM / 1 000 req per day. Paid tier removes the cap.
-    id: "nim-deepseek",
-    label: "NIM · DeepSeek V4 Pro / Flash",
-    llm_provider: "nvidia_nim",
-    deep_think_llm: "deepseek-ai/deepseek-v4-pro",
-    quick_think_llm: "deepseek-ai/deepseek-v4-flash",
-    backend_url: "https://integrate.api.nvidia.com/v1",
-    key_env: "NVIDIA_NIM_API_KEY",
-  },
-  {
-    // NIM equivalent of "OpenRouter · GLM-5.2":
-    //   deep  = thudm/glm-z1-32b   (32B thinking = "GLM-5.2 deep")
-    //   quick = thudm/glm-4-9b-chat (9B chat     = "GLM-4.7 Flash")
-    // Same NIM free-tier limits apply.
-    id: "nim-glm",
-    label: "NIM · GLM 5.2 / 4.7 Flash",
-    llm_provider: "nvidia_nim",
-    deep_think_llm: "thudm/glm-z1-32b",
-    quick_think_llm: "thudm/glm-4-9b-chat",
-    backend_url: "https://integrate.api.nvidia.com/v1",
-    key_env: "NVIDIA_NIM_API_KEY",
-  },
+const OR_MODELS = [
+  // ── OpenAI ── (all verified on OR 2026-07-17)
+  { id: "openai/gpt-5.6-sol-pro",         label: "OpenAI  ·  GPT-5.6 Sol Pro" },
+  { id: "openai/gpt-5.6-sol",             label: "OpenAI  ·  GPT-5.6 Sol" },
+  { id: "openai/gpt-5.6-terra-pro",       label: "OpenAI  ·  GPT-5.6 Terra Pro" },
+  { id: "openai/gpt-5.6-terra",           label: "OpenAI  ·  GPT-5.6 Terra (Terri)" },
+  { id: "openai/gpt-5.6-luna-pro",        label: "OpenAI  ·  GPT-5.6 Luna Pro" },
+  { id: "openai/gpt-5.6-luna",            label: "OpenAI  ·  GPT-5.6 Luna" },
+  { id: "openai/gpt-5.4-pro",             label: "OpenAI  ·  GPT-5.4 Pro" },
+  { id: "openai/gpt-5-mini",              label: "OpenAI  ·  GPT-5 Mini" },
+  // ── Anthropic ── (verified; note dot notation: opus-4.8 not opus-4-8)
+  { id: "anthropic/claude-opus-4.8",      label: "Anthropic  ·  Claude Opus 4.8" },
+  { id: "anthropic/claude-opus-4.8-fast", label: "Anthropic  ·  Claude Opus 4.8 Fast" },
+  { id: "anthropic/claude-fable-5",       label: "Anthropic  ·  Fable 5" },
+  { id: "anthropic/claude-sonnet-5",      label: "Anthropic  ·  Claude Sonnet 5" },
+  { id: "~anthropic/claude-haiku-latest", label: "Anthropic  ·  Claude Haiku (latest)" },
+  // ── Google ── (verified on OR 2026-07-17)
+  { id: "google/gemini-3.5-flash",        label: "Google  ·  Gemini 3.5 Flash" },
+  { id: "google/gemini-3.1-flash-lite",   label: "Google  ·  Gemini 3.1 Flash Lite" },
+  { id: "google/gemini-2.5-pro",          label: "Google  ·  Gemini 2.5 Pro" },
+  { id: "google/gemini-2.5-flash",        label: "Google  ·  Gemini 2.5 Flash" },
+  // ── DeepSeek ── (verified via openrouter.ai/deepseek/deepseek-v4-pro|flash)
+  { id: "deepseek/deepseek-v4-pro",       label: "DeepSeek  ·  V4 Pro" },
+  { id: "deepseek/deepseek-v4-flash",     label: "DeepSeek  ·  V4 Flash" },
+  // ── Moonshot ── (verified via openrouter.ai/moonshotai/kimi-k3)
+  { id: "moonshotai/kimi-k3",                    label: "Moonshot  ·  Kimi K3" },
+  { id: "moonshotai/kimi-k2.7-code",             label: "Moonshot  ·  Kimi K2.7 Code" },
+  // ── Meta Llama (via NIM / OR) ──
+  { id: "meta-llama/llama-3.1-405b-instruct",    label: "Meta  ·  Llama 3.1 405B" },
+  { id: "meta-llama/llama-4-scout",              label: "Meta  ·  Llama 4 Scout" },
+  // ── Free tier ── (rate-limited, no credits consumed)
+  { id: "deepseek/deepseek-r1:free",             label: "DeepSeek  ·  R1 (free)" },
+  { id: "google/gemini-2.5-flash:free",          label: "Google  ·  Gemini 2.5 Flash (free)" },
 ] as const;
-
-type PresetId = typeof PROVIDER_PRESETS[number]["id"];
 
 const MAX_TICKERS = 6;
 
@@ -175,13 +139,13 @@ function NewAnalysisPanel({
   const [tickerInput, setTickerInput] = useState("");
   const [tradeDate, setTradeDate] = useState(new Date().toISOString().split("T")[0]);
   const [selectedAnalysts, setSelectedAnalysts] = useState(ALL_ANALYSTS.map(a => a.key));
-  const [presetId, setPresetId] = useState<PresetId>("openrouter-deepseek");
-  const [apiKey, setApiKey] = useState("");
+  // Both models route through OpenRouter (OPENROUTER_API_KEY)
+  const [deepModel, setDeepModel] = useState("openai/gpt-5.6-sol-pro");
+  const [quickModel, setQuickModel] = useState("openai/gpt-5.6-sol");
   const [loading, setLoading] = useState(false);
   const [startedCount, setStartedCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
-  const preset = PROVIDER_PRESETS.find(p => p.id === presetId) ?? PROVIDER_PRESETS[0];
   const tickers = parseTickers(tickerInput);
   const atMax = tickers.length >= MAX_TICKERS;
 
@@ -204,11 +168,10 @@ function NewAnalysisPanel({
     const baseConfig = {
       trade_date: tradeDate,
       analysts: selectedAnalysts,
-      llm_provider: preset.llm_provider,
-      deep_think_llm: preset.deep_think_llm,
-      quick_think_llm: preset.quick_think_llm,
-      ...(preset.backend_url && { backend_url: preset.backend_url }),
-      ...(apiKey.trim() && { keys: { [preset.key_env]: apiKey.trim() } }),
+      llm_provider: "openrouter",
+      backend_url: "https://openrouter.ai/api/v1",
+      deep_think_llm: deepModel,
+      quick_think_llm: quickModel,
     };
     try {
       for (const t of tickers) {
@@ -305,38 +268,44 @@ function NewAnalysisPanel({
         </div>
       </div>
 
-      {/* ── LLM Provider ── */}
-      <div className="space-y-2">
-        <label className="text-xs text-slate-400 block">LLM Provider</label>
-        <div className="grid grid-cols-3 gap-2">
-          {PROVIDER_PRESETS.map(p => (
-            <button
-              key={p.id}
-              onClick={() => setPresetId(p.id)}
-              className={clsx(
-                "px-3 py-2 rounded-lg text-xs font-medium text-left transition-colors border",
-                presetId === p.id
-                  ? "bg-violet-900/40 border-violet-600/60 text-violet-300"
-                  : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
-              )}
+      {/* ── Model Selection (OpenRouter) ── */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-xs text-slate-400">Models</label>
+          <span className="text-[10px] font-mono text-slate-600">via OpenRouter · OPENROUTER_API_KEY</span>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-slate-500 block mb-1.5">
+              🧠 Deep reasoning
+              <span className="text-slate-600 ml-1 font-normal">(analysts · manager)</span>
+            </label>
+            <select
+              value={deepModel}
+              onChange={e => setDeepModel(e.target.value)}
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-violet-300 text-xs font-mono focus:outline-none focus:border-violet-500 cursor-pointer"
             >
-              {p.label}
-            </button>
-          ))}
+              {OR_MODELS.map(m => (
+                <option key={m.id} value={m.id}>{m.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 block mb-1.5">
+              ⚡ Quick think
+              <span className="text-slate-600 ml-1 font-normal">(tools · debate)</span>
+            </label>
+            <select
+              value={quickModel}
+              onChange={e => setQuickModel(e.target.value)}
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sky-300 text-xs font-mono focus:outline-none focus:border-sky-500 cursor-pointer"
+            >
+              {OR_MODELS.map(m => (
+                <option key={m.id} value={m.id}>{m.label}</option>
+              ))}
+            </select>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] text-slate-600 font-mono shrink-0">{preset.key_env}</span>
-          <input
-            value={apiKey}
-            onChange={e => setApiKey(e.target.value)}
-            placeholder="paste key here (or leave blank to use server env)"
-            type="password"
-            className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-slate-300 font-mono text-xs focus:outline-none focus:border-violet-500 placeholder:text-slate-600"
-          />
-        </div>
-        <p className="text-[10px] text-slate-600">
-          Key is sent once to the server for this run only and never stored. Leave blank if already set in server env.
-        </p>
       </div>
 
       {/* ── Debate model — server-configured, shown read-only ── */}
@@ -615,6 +584,7 @@ export default function SignalsPage() {
                   </th>
                 ))}
                 <th className="text-left px-4 py-3 font-medium text-slate-400">Age</th>
+                <th className="text-left px-4 py-3 font-medium text-slate-400">Report</th>
                 <th className="px-4 py-3" />
               </tr>
             </thead>
@@ -669,6 +639,18 @@ export default function SignalsPage() {
                         ? <span className="text-amber-400">⚠ {sig.age_days}d old</span>
                         : <span>{sig.age_days}d ago</span>
                       }
+                    </td>
+                    <td className="px-4 py-3">
+                      {sig.date ? (
+                        <Link
+                          href={`/portfolio/reports/${sig.ticker}/${sig.date}`}
+                          className="px-2 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-sky-600 text-sky-400 hover:text-sky-300 rounded text-xs transition-colors whitespace-nowrap"
+                        >
+                          📄 View
+                        </Link>
+                      ) : (
+                        <span className="text-slate-600 text-xs">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <button

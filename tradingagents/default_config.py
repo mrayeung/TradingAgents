@@ -153,7 +153,7 @@ DEFAULT_CONFIG = _apply_env_overrides({
     # Debate and discussion settings
     "max_debate_rounds": 1,
     "max_risk_discuss_rounds": 1,
-    "max_recur_limit": 250,
+    "max_recur_limit": 600,
     # News / data fetching parameters
     # Increase for longer lookback strategies or to broaden macro coverage;
     # decrease to reduce token usage in agent prompts.

@@ -243,7 +243,8 @@ function DrainSchedule({ drain }: { drain: TreasuryDrain }) {
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
       <div className="px-4 py-3 border-b border-slate-800">
-        <span className="text-slate-200 text-sm font-semibold">🏦 T-Bill Settlement Schedule (14d)</span>
+        <span className="text-slate-200 text-sm font-semibold">🏦 Treasury Settlement Schedule (14d)</span>
+        <span className="text-slate-600 text-[10px] ml-2">Gross issuance — not net reserve drain</span>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
@@ -268,7 +269,10 @@ function DrainSchedule({ drain }: { drain: TreasuryDrain }) {
           {drain.weekly_net_bn !== null && (
             <tfoot>
               <tr className="border-t border-slate-700">
-                <td colSpan={3} className="px-4 py-2 text-slate-500">7-day net drain</td>
+                <td colSpan={3} className="px-4 py-2 text-slate-500">
+                  7-day gross settlement
+                  <span className="ml-1 text-slate-600 text-[10px]">(gross, not net drain)</span>
+                </td>
                 <td className="px-4 py-2 text-right font-mono font-bold text-amber-300">
                   ${drain.weekly_net_bn}B
                 </td>
@@ -566,12 +570,12 @@ export default function Dashboard() {
                 badgeCls={drainStatusCls(data.treasury_drain.status)}
                 sub={
                   data.treasury_drain.next_drain
-                    ? `Settles ${fmtDate(data.treasury_drain.next_drain.date)} · 7d net drain $${data.treasury_drain.weekly_net_bn ?? "?"}B · ${
+                    ? `Settles ${fmtDate(data.treasury_drain.next_drain.date)} · 7d gross $${data.treasury_drain.weekly_net_bn ?? "?"}B · ${
                         data.treasury_drain.status === "CODE_RED"
-                          ? "⚠ Exceeds $100B — RRP near zero — CODE RED"
+                          ? "⚠ SOFR > IORB or RRP exhausted + heavy issuance — watch repo prints"
                           : data.treasury_drain.status === "MONITOR"
-                          ? "Monitor — elevated drain can spook risk assets"
-                          : "Normal settlement volume — no systemic risk"
+                          ? "RRP buffer thinning or heavy gross week — monitor SOFR/IORB spread"
+                          : "Benign — SOFR below IORB, RRP cushion intact"
                       }`
                     : "No Treasury auctions in next 14 days"
                 }

@@ -1,0 +1,617 @@
+{
+  "analyst_signals": {
+    "name": "Analyst Signals",
+    "description": "Multi-analyst consensus ratings with conviction scores, expected returns, win probabilities, and individual analyst verdicts across sentiment, news, fundamentals, valuation, and market technicals.",
+    "category": "Equity Research",
+    "searchCategory": "Research",
+    "endpoint": "/portfolio/signals/flat",
+    "gridData": {
+      "w": 40,
+      "h": 12
+    },
+    "params": [],
+    "data": {
+      "dataKey": "signals",
+      "table": {
+        "showAll": true,
+        "columnsDefs": [
+          {
+            "headerName": "Ticker",
+            "field": "ticker",
+            "chartDataType": "category"
+          },
+          {
+            "headerName": "Rating",
+            "field": "rating",
+            "chartDataType": "category"
+          },
+          {
+            "headerName": "Conviction",
+            "field": "conviction",
+            "chartDataType": "series"
+          },
+          {
+            "headerName": "Expected Return",
+            "field": "expected_return",
+            "chartDataType": "series"
+          },
+          {
+            "headerName": "Win Prob",
+            "field": "win_prob",
+            "chartDataType": "series"
+          },
+          {
+            "headerName": "Market",
+            "field": "market",
+            "chartDataType": "category"
+          },
+          {
+            "headerName": "Sentiment",
+            "field": "sentiment",
+            "chartDataType": "category"
+          },
+          {
+            "headerName": "News",
+            "field": "news",
+            "chartDataType": "category"
+          },
+          {
+            "headerName": "Fundamentals",
+            "field": "fundamentals",
+            "chartDataType": "category"
+          },
+          {
+            "headerName": "Valuation",
+            "field": "valuation",
+            "chartDataType": "category"
+          },
+          {
+            "headerName": "Market Technician",
+            "field": "market_technician",
+            "chartDataType": "category"
+          },
+          {
+            "headerName": "Age (days)",
+            "field": "age_days",
+            "chartDataType": "series"
+          },
+          {
+            "headerName": "Stale",
+            "field": "stale",
+            "chartDataType": "excluded"
+          },
+          {
+            "headerName": "Date",
+            "field": "date",
+            "chartDataType": "excluded"
+          }
+        ]
+      }
+    }
+  },
+  "portfolio_weights": {
+    "name": "Portfolio Weights (BL)",
+    "description": "Black-Litterman optimised portfolio weights for a given ticker set. Adjust risk aversion and position bounds to explore allocation scenarios.",
+    "category": "Portfolio",
+    "searchCategory": "Portfolio",
+    "endpoint": "/portfolio/weights",
+    "gridData": {
+      "w": 20,
+      "h": 9
+    },
+    "params": [
+      {
+        "paramName": "tickers",
+        "label": "Tickers",
+        "description": "Comma-separated list of tickers to optimise (e.g. AAPL,MSFT,NVDA)",
+        "value": "",
+        "type": "text",
+        "show": true,
+        "optional": false
+      },
+      {
+        "paramName": "risk_aversion",
+        "label": "Risk Aversion",
+        "description": "Higher values penalise volatility more heavily (default: 2.5)",
+        "value": "2.5",
+        "type": "number",
+        "show": true,
+        "optional": true
+      },
+      {
+        "paramName": "max_position",
+        "label": "Max Position",
+        "description": "Maximum weight for any single position (default: 0.40)",
+        "value": "0.40",
+        "type": "number",
+        "show": true,
+        "optional": true
+      },
+      {
+        "paramName": "min_position",
+        "label": "Min Position",
+        "description": "Minimum weight for any single position (default: 0.02)",
+        "value": "0.02",
+        "type": "number",
+        "show": true,
+        "optional": true
+      },
+      {
+        "paramName": "lookback_days",
+        "label": "Lookback (days)",
+        "description": "Historical window used to estimate covariance (default: 90)",
+        "value": "90",
+        "type": "number",
+        "show": true,
+        "optional": true
+      }
+    ],
+    "data": {
+      "dataKey": "weights",
+      "table": {
+        "showAll": true,
+        "columnsDefs": [
+          {
+            "headerName": "Ticker",
+            "field": "ticker",
+            "chartDataType": "category"
+          },
+          {
+            "headerName": "Weight",
+            "field": "weight",
+            "chartDataType": "series"
+          },
+          {
+            "headerName": "BL Return",
+            "field": "bl_return",
+            "chartDataType": "series"
+          }
+        ]
+      }
+    }
+  },
+  "portfolio_sizing": {
+    "name": "Position Sizing",
+    "description": "Kelly-criterion position sizing with half-Kelly scaling and correlation-adjusted final sizes.",
+    "category": "Portfolio",
+    "searchCategory": "Portfolio",
+    "endpoint": "/portfolio/sizing",
+    "gridData": {
+      "w": 20,
+      "h": 9
+    },
+    "params": [
+      {
+        "paramName": "tickers",
+        "label": "Tickers",
+        "description": "Comma-separated list of tickers",
+        "value": "",
+        "type": "text",
+        "show": true,
+        "optional": false
+      },
+      {
+        "paramName": "weights",
+        "label": "Weights",
+        "description": "Optional comma-separated target weights matching ticker order",
+        "value": "",
+        "type": "text",
+        "show": true,
+        "optional": true
+      }
+    ],
+    "data": {
+      "dataKey": "positions",
+      "table": {
+        "showAll": true,
+        "columnsDefs": [
+          {
+            "headerName": "Ticker",
+            "field": "ticker",
+            "chartDataType": "category"
+          },
+          {
+            "headerName": "Weight",
+            "field": "weight",
+            "chartDataType": "series"
+          },
+          {
+            "headerName": "Kelly f",
+            "field": "kelly_f",
+            "chartDataType": "series"
+          },
+          {
+            "headerName": "Half-Kelly",
+            "field": "half_kelly",
+            "chartDataType": "series"
+          },
+          {
+            "headerName": "Correlation Penalty",
+            "field": "correlation_penalty",
+            "chartDataType": "series"
+          },
+          {
+            "headerName": "Final Size",
+            "field": "final_size",
+            "chartDataType": "series"
+          }
+        ]
+      }
+    }
+  },
+  "portfolio_rebalance": {
+    "name": "Rebalance Trades",
+    "description": "Dollar-level rebalance instructions \u2014 BUY/SELL actions with weight deltas and notional amounts \u2014 given current and target allocations.",
+    "category": "Portfolio",
+    "searchCategory": "Portfolio",
+    "endpoint": "/portfolio/rebalance",
+    "gridData": {
+      "w": 20,
+      "h": 9
+    },
+    "params": [
+      {
+        "paramName": "tickers",
+        "label": "Tickers",
+        "description": "Comma-separated list of tickers",
+        "value": "",
+        "type": "text",
+        "show": true,
+        "optional": false
+      },
+      {
+        "paramName": "target_weights",
+        "label": "Target Weights",
+        "description": "Comma-separated target weights matching ticker order (e.g. 0.30,0.40,0.30)",
+        "value": "",
+        "type": "text",
+        "show": true,
+        "optional": false
+      },
+      {
+        "paramName": "current_weights",
+        "label": "Current Weights",
+        "description": "Optional comma-separated current weights; defaults to equal-weight if omitted",
+        "value": "",
+        "type": "text",
+        "show": true,
+        "optional": true
+      },
+      {
+        "paramName": "portfolio_value",
+        "label": "Portfolio Value ($)",
+        "description": "Total portfolio value in USD used to calculate notional trade sizes (default: 100000)",
+        "value": "100000",
+        "type": "number",
+        "show": true,
+        "optional": true
+      }
+    ],
+    "data": {
+      "dataKey": "trades",
+      "table": {
+        "showAll": true,
+        "columnsDefs": [
+          {
+            "headerName": "Ticker",
+            "field": "ticker",
+            "chartDataType": "category"
+          },
+          {
+            "headerName": "Action",
+            "field": "action",
+            "chartDataType": "category"
+          },
+          {
+            "headerName": "Current Weight",
+            "field": "current_weight",
+            "chartDataType": "series"
+          },
+          {
+            "headerName": "Target Weight",
+            "field": "target_weight",
+            "chartDataType": "series"
+          },
+          {
+            "headerName": "Delta Weight",
+            "field": "delta_weight",
+            "chartDataType": "series"
+          },
+          {
+            "headerName": "Dollar Amount",
+            "field": "dollar_amount",
+            "chartDataType": "series"
+          }
+        ]
+      }
+    }
+  },
+  "portfolio_benchmark": {
+    "name": "Benchmark Comparison",
+    "description": "Portfolio performance vs SPY, QQQ, and DIA benchmarks \u2014 returns, volatility, and Sharpe ratio over a configurable lookback window.",
+    "category": "Portfolio",
+    "searchCategory": "Portfolio",
+    "endpoint": "/portfolio/benchmark/summary",
+    "gridData": {
+      "w": 20,
+      "h": 9
+    },
+    "params": [
+      {
+        "paramName": "tickers",
+        "label": "Tickers",
+        "description": "Comma-separated list of portfolio tickers",
+        "value": "",
+        "type": "text",
+        "show": true,
+        "optional": false
+      },
+      {
+        "paramName": "weights",
+        "label": "Weights",
+        "description": "Optional comma-separated portfolio weights matching ticker order",
+        "value": "",
+        "type": "text",
+        "show": true,
+        "optional": true
+      },
+      {
+        "paramName": "days",
+        "label": "Lookback (days)",
+        "description": "Performance measurement window in calendar days (default: 90)",
+        "value": "90",
+        "type": "number",
+        "show": true,
+        "optional": true
+      }
+    ],
+    "data": {
+      "dataKey": "rows",
+      "table": {
+        "showAll": true,
+        "columnsDefs": [
+          {
+            "headerName": "Metric",
+            "field": "metric",
+            "chartDataType": "category"
+          },
+          {
+            "headerName": "Value",
+            "field": "value",
+            "chartDataType": "series"
+          }
+        ]
+      }
+    }
+  },
+  "macro_calendar": {
+    "name": "Macro Calendar",
+    "description": "Upcoming macro economic events sourced from OpenBB calendar data, including FOMC, CPI, NFP, and other market-moving releases.",
+    "category": "Macro",
+    "searchCategory": "Macro",
+    "endpoint": "/dashboard",
+    "gridData": {
+      "w": 20,
+      "h": 9
+    },
+    "params": [],
+    "data": {
+      "dataKey": "calendar",
+      "table": {
+        "showAll": true,
+        "columnsDefs": [
+          {
+            "headerName": "Date",
+            "field": "date",
+            "chartDataType": "excluded"
+          },
+          {
+            "headerName": "Event",
+            "field": "event",
+            "chartDataType": "category"
+          },
+          {
+            "headerName": "Category",
+            "field": "category",
+            "chartDataType": "category"
+          },
+          {
+            "headerName": "Source",
+            "field": "source",
+            "chartDataType": "excluded"
+          }
+        ]
+      }
+    }
+  },
+  "position_risk_matrix": {
+    "name": "Position Risk Matrix",
+    "description": "Event-driven risk flags for current holdings \u2014 upcoming earnings, dividends, and macro catalysts with recommended actions and days-to-event countdown.",
+    "category": "Macro",
+    "searchCategory": "Risk",
+    "endpoint": "/dashboard",
+    "gridData": {
+      "w": 20,
+      "h": 9
+    },
+    "params": [],
+    "data": {
+      "dataKey": "position_matrix",
+      "table": {
+        "showAll": true,
+        "columnsDefs": [
+          {
+            "headerName": "Ticker",
+            "field": "ticker",
+            "chartDataType": "category"
+          },
+          {
+            "headerName": "Strategy",
+            "field": "strategy",
+            "chartDataType": "category"
+          },
+          {
+            "headerName": "Next Event",
+            "field": "next_event",
+            "chartDataType": "category"
+          },
+          {
+            "headerName": "Event Date",
+            "field": "event_date",
+            "chartDataType": "excluded"
+          },
+          {
+            "headerName": "Days to Event",
+            "field": "days_to_event",
+            "chartDataType": "series"
+          },
+          {
+            "headerName": "Risk Level",
+            "field": "risk_level",
+            "chartDataType": "category"
+          },
+          {
+            "headerName": "Recommendation",
+            "field": "recommendation",
+            "chartDataType": "excluded"
+          }
+        ]
+      }
+    }
+  },
+  "insider_signals": {
+    "name": "Insider Activity",
+    "description": "Recent insider buy/sell transactions aggregated from SEC Form 4 filings, with officer identity and notional transaction value.",
+    "category": "Macro",
+    "searchCategory": "Research",
+    "endpoint": "/dashboard",
+    "gridData": {
+      "w": 40,
+      "h": 9
+    },
+    "params": [],
+    "data": {
+      "dataKey": "insider_signals",
+      "table": {
+        "showAll": true,
+        "columnsDefs": [
+          {
+            "headerName": "Ticker",
+            "field": "ticker",
+            "chartDataType": "category"
+          },
+          {
+            "headerName": "Type",
+            "field": "type",
+            "chartDataType": "category"
+          },
+          {
+            "headerName": "Officer",
+            "field": "officer",
+            "chartDataType": "category"
+          },
+          {
+            "headerName": "Value (USD)",
+            "field": "value_usd",
+            "chartDataType": "series"
+          },
+          {
+            "headerName": "Date",
+            "field": "date",
+            "chartDataType": "excluded"
+          }
+        ]
+      }
+    }
+  },
+  "sp500_scorecard": {
+    "name": "S&P 500 Scorecard",
+    "description": "Market health scorecard with z-score normalised metrics across breadth, momentum, valuation, and credit \u2014 each with a directional signal.",
+    "category": "Valuation",
+    "searchCategory": "Macro",
+    "endpoint": "/portfolio/scorecard",
+    "gridData": {
+      "w": 40,
+      "h": 12
+    },
+    "params": [],
+    "data": {
+      "dataKey": "metrics",
+      "table": {
+        "showAll": true,
+        "columnsDefs": [
+          {
+            "headerName": "Metric",
+            "field": "metric",
+            "chartDataType": "category"
+          },
+          {
+            "headerName": "Value",
+            "field": "value",
+            "chartDataType": "series"
+          },
+          {
+            "headerName": "Hist. Avg",
+            "field": "historical_avg",
+            "chartDataType": "series"
+          },
+          {
+            "headerName": "Z-Score",
+            "field": "z_score",
+            "chartDataType": "series"
+          },
+          {
+            "headerName": "Signal",
+            "field": "signal",
+            "chartDataType": "category"
+          }
+        ]
+      }
+    }
+  },
+  "report_library": {
+    "name": "Research Reports",
+    "description": "Archive of generated analyst research reports. Filter by ticker to view the full history for a single name.",
+    "category": "Reports",
+    "searchCategory": "Research",
+    "endpoint": "/reports",
+    "gridData": {
+      "w": 40,
+      "h": 12
+    },
+    "params": [
+      {
+        "paramName": "ticker",
+        "label": "Ticker",
+        "description": "Filter reports to a specific ticker symbol (leave blank to view all)",
+        "value": "",
+        "type": "text",
+        "show": true,
+        "optional": true
+      }
+    ],
+    "data": {
+      "dataKey": "reports",
+      "table": {
+        "showAll": true,
+        "columnsDefs": [
+          {
+            "headerName": "Ticker",
+            "field": "ticker",
+            "chartDataType": "category"
+          },
+          {
+            "headerName": "Date",
+            "field": "date",
+            "chartDataType": "excluded"
+          },
+          {
+            "headerName": "Rating",
+            "field": "rating",
+            "chartDataType": "category"
+          }
+        ]
+      }
+    }
+  }
+}

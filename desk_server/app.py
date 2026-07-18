@@ -3,6 +3,8 @@
 Endpoints:
   GET  /health                 liveness + schema version (used by the Docker healthcheck and the app)
   GET  /capabilities           provider/model/vendor surface (Settings UI source of truth)
+  GET  /widgets.json           OpenBB Workspace widget catalogue (auto-discovered at registration)
+  GET  /apps.json              OpenBB Workspace dashboard layout (tab/widget arrangement)
   GET  /journal[?ticker]       decisions journal parsed from the engine memory log
   GET  /reports[?ticker[&date]] list saved run documents, or return one full document
   GET  /search?q=              live ticker/company search (Yahoo Finance public search)
@@ -17,10 +19,14 @@ Endpoints:
 
 Portfolio Construction Endpoints:
   GET  /portfolio/signals      aggregate analyst signals across all saved reports
+  GET  /portfolio/signals/flat flat analyst signals for OpenBB table widgets (analyst_verdicts inlined)
   POST /portfolio/construct    run Black-Litterman + mean-variance optimisation
+  GET  /portfolio/weights      Black-Litterman optimised weights — GET alias for OpenBB table widgets
   GET  /portfolio/correlation  return-correlation matrix for a ticker set
   GET  /portfolio/sizing       Kelly-criterion position sizes with correlation penalty
   GET  /portfolio/benchmark    portfolio performance vs SPY / QQQ / DIA
+  GET  /portfolio/benchmark/summary  flat metric rows for OpenBB table widgets
+  GET  /portfolio/rebalance    rebalance trade list — GET alias for OpenBB table widgets
   POST /portfolio/rebalance    compute trade list from current holdings → target weights
 """
 
@@ -35,6 +41,7 @@ from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from desk_adapter.protocol import SCHEMA_VERSION
 from desk_server.events import sse_format
@@ -49,11 +56,24 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "https://pro.openbb.co",          # OpenBB Workspace custom backend
+        "https://openbb.co",
     ],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Chrome 104+ Private Network Access: HTTPS origins (pro.openbb.co) require
+# Access-Control-Allow-Private-Network: true in CORS preflight responses before
+# they are permitted to reach http://localhost endpoints.
+class _PrivateNetworkAccessMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["Access-Control-Allow-Private-Network"] = "true"
+        return response
+
+app.add_middleware(_PrivateNetworkAccessMiddleware)
 
 _runs: dict[str, RunHandle] = {}
 
@@ -85,7 +105,7 @@ _RUN_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="desk-run")
 # Evict a finished run from ``_runs`` this long after it completes, so an SSE
 # client still has time to drain the tail but the per-run buffer (full report
 # markdown + tool output) doesn't accumulate for the container's lifetime.
-_RUN_RETENTION_S = 600
+_RUN_RETENTION_S = 4 * 3600  # 4 hours — matches the localStorage TTL in the frontend
 
 
 @app.get("/health")
@@ -99,6 +119,28 @@ async def capabilities() -> JSONResponse:
     from desk_adapter.introspect import build_capabilities
 
     return JSONResponse(build_capabilities())
+
+
+@app.get("/widgets.json")
+async def openbb_widgets() -> JSONResponse:
+    """OpenBB Workspace widget catalogue — auto-discovered at backend registration."""
+    import json as _json
+    from pathlib import Path
+    cfg_path = Path(__file__).parent / "widgets.json"
+    if not cfg_path.exists():
+        raise HTTPException(status_code=404, detail="widgets.json not found")
+    return JSONResponse(_json.loads(cfg_path.read_text(encoding="utf-8")))
+
+
+@app.get("/apps.json")
+async def openbb_apps() -> JSONResponse:
+    """OpenBB Workspace dashboard layout — tab/widget arrangement."""
+    import json as _json
+    from pathlib import Path
+    cfg_path = Path(__file__).parent / "apps.json"
+    if not cfg_path.exists():
+        raise HTTPException(status_code=404, detail="apps.json not found")
+    return JSONResponse(_json.loads(cfg_path.read_text(encoding="utf-8")))
 
 
 @app.get("/journal")
@@ -342,7 +384,15 @@ async def cancel_run(run_id: str) -> dict:
 async def run_state(run_id: str) -> dict:
     handle = _runs.get(run_id)
     if handle is None:
-        raise HTTPException(status_code=404, detail="unknown run")
+        # Return a terminal "error" state instead of 404 so the browser
+        # stops polling for run IDs that belong to a previous container
+        # instance (e.g. after a Docker rebuild wipes the in-memory _runs dict).
+        return {
+            "run_id": run_id,
+            "status": "error",
+            "done": True,
+            "error_message": "Run not found — server may have restarted. Please dismiss and start a new run.",
+        }
     return {
         "run_id": run_id,
         "status": handle.status,
@@ -412,6 +462,34 @@ async def portfolio_signals() -> dict:
         rows = await asyncio.to_thread(_run)
         return {"signals": rows}
     except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/portfolio/signals/flat")
+async def portfolio_signals_flat() -> dict:
+    """Flat analyst signals for OpenBB table widgets — analyst_verdicts inlined."""
+    from pathlib import Path
+    from dataclasses import asdict
+    from tradingagents.default_config import DEFAULT_CONFIG
+    from tradingagents.portfolio.signals import aggregate_signals
+
+    results_dir = Path(DEFAULT_CONFIG["results_dir"])
+
+    def _run():
+        rows = aggregate_signals(results_dir)
+        out = []
+        for r in rows:
+            d = asdict(r)
+            v = d.pop("analyst_verdicts", {})
+            d.update(v)   # flatten: market, sentiment, news, fundamentals, valuation, market_technician, quantitative
+            d.pop("report_path", None)   # internal path, not useful in OpenBB
+            out.append(d)
+        return out
+
+    try:
+        rows = await asyncio.to_thread(_run)
+        return {"signals": rows}
+    except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -512,6 +590,89 @@ async def portfolio_construct(request: Request) -> dict:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@app.get("/portfolio/weights")
+async def portfolio_weights(
+    tickers: str = "",
+    risk_aversion: float = 2.5,
+    max_position: float = 0.40,
+    min_position: float = 0.02,
+    lookback_days: int = 90,
+) -> dict:
+    """Black-Litterman optimised weights — GET alias for OpenBB table widgets.
+
+    Query params:
+      tickers:       comma-separated ticker list (e.g. AAPL,MSFT,NVDA)
+      risk_aversion: BL risk-aversion δ (default 2.5)
+      max_position:  per-ticker weight cap (default 0.40)
+      min_position:  per-ticker weight floor (default 0.02)
+      lookback_days: price history for covariance (default 90)
+    """
+    import yfinance as yf
+    import pandas as pd
+    from pathlib import Path
+    from tradingagents.default_config import DEFAULT_CONFIG
+    from tradingagents.portfolio.signals import aggregate_signals
+    from tradingagents.portfolio.black_litterman import compute_bl_returns
+    from tradingagents.portfolio.optimizer import optimize_portfolio
+
+    ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
+    if not ticker_list:
+        raise HTTPException(status_code=400, detail="tickers query param is required (comma-separated)")
+
+    results_dir = Path(DEFAULT_CONFIG["results_dir"])
+
+    def _run():
+        signal_rows = aggregate_signals(results_dir)
+        signal_map = {r.ticker: r for r in signal_rows}
+
+        raw = yf.download(ticker_list, period=f"{lookback_days}d", auto_adjust=True, progress=False)
+        if isinstance(raw.columns, pd.MultiIndex):
+            prices_df = raw["Close"] if "Close" in raw.columns.get_level_values(0) else raw
+        else:
+            prices_df = raw[["Close"]] if "Close" in raw.columns else raw
+            if len(ticker_list) == 1:
+                prices_df.columns = [ticker_list[0]]
+
+        valid = [t for t in ticker_list if t in prices_df.columns and not prices_df[t].dropna().empty]
+        if not valid:
+            raise ValueError(f"No price data found for: {', '.join(ticker_list)}")
+
+        prices_df = prices_df[valid].dropna()
+        returns_df = prices_df.pct_change().dropna()
+
+        bl_views = {t: signal_map[t].expected_return for t in valid if t in signal_map}
+        bl_returns = compute_bl_returns(returns_df, bl_views, delta=risk_aversion)
+        result = optimize_portfolio(
+            returns_df, bl_returns,
+            max_position=max_position,
+            min_position=min_position,
+        )
+
+        rows = [
+            {
+                "ticker": t,
+                "weight": round(result["weights"].get(t, 0.0), 4),
+                "bl_return": round(bl_returns.get(t, 0.0), 4),
+            }
+            for t in valid
+        ]
+        rows.sort(key=lambda r: -r["weight"])
+
+        return {
+            "weights": rows,
+            "summary": {
+                "expected_return": result.get("expected_return"),
+                "volatility":      result.get("volatility"),
+                "sharpe":          result.get("sharpe"),
+            },
+        }
+
+    try:
+        return await asyncio.to_thread(_run)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @app.get("/portfolio/correlation")
 async def portfolio_correlation(tickers: str = "", days: int = 90) -> dict:
     """Return pairwise return-correlation matrix.
@@ -609,6 +770,95 @@ async def portfolio_benchmark(
         return await asyncio.to_thread(_run)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/portfolio/benchmark/summary")
+async def portfolio_benchmark_summary(
+    tickers: str = "",
+    weights: str = "",
+    days: int = 90,
+) -> dict:
+    """Benchmark summary as flat metric rows for OpenBB table widgets.
+
+    Returns [{metric, portfolio, spy, qqq, dia}] rows.
+    """
+    from tradingagents.portfolio.benchmark import compute_benchmark_comparison
+
+    ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
+    if not ticker_list:
+        raise HTTPException(status_code=400, detail="tickers query param is required")
+
+    weight_vals = [float(w.strip()) for w in weights.split(",") if w.strip()]
+    if len(weight_vals) != len(ticker_list):
+        weight_vals = [1.0 / len(ticker_list)] * len(ticker_list)
+    weight_map = dict(zip(ticker_list, weight_vals))
+
+    def _run():
+        result = compute_benchmark_comparison(ticker_list, weight_map, days=days)
+        s = result.get("summary", {})
+        rows = [
+            {"metric": "Return",     "portfolio": s.get("portfolio_return"),   "spy": s.get("spy_return"),   "qqq": s.get("qqq_return"),   "dia": s.get("dia_return")},
+            {"metric": "Volatility", "portfolio": s.get("portfolio_volatility"), "spy": None, "qqq": None, "dia": None},
+            {"metric": "Sharpe vs SPY", "portfolio": s.get("sharpe_vs_spy"),  "spy": None, "qqq": None, "dia": None},
+        ]
+        return {"rows": rows}
+
+    try:
+        return await asyncio.to_thread(_run)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/portfolio/rebalance")
+async def portfolio_rebalance_get(
+    tickers: str = "",
+    current_weights: str = "",
+    target_weights: str = "",
+    portfolio_value: float = 100_000,
+) -> dict:
+    """Rebalance trade list — GET alias for OpenBB table widgets.
+
+    Query params:
+      tickers:         comma-separated tickers (e.g. AAPL,MSFT,GOOGL)
+      current_weights: comma-separated current weights matching tickers order (e.g. 0.5,0.3,0.2)
+      target_weights:  comma-separated target weights matching tickers order  (e.g. 0.4,0.35,0.25)
+      portfolio_value: total portfolio value in USD (default 100000)
+    """
+    ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
+    if not ticker_list:
+        raise HTTPException(status_code=400, detail="tickers is required")
+
+    current_vals = [float(w.strip()) for w in current_weights.split(",") if w.strip()]
+    target_vals  = [float(w.strip()) for w in target_weights.split(",") if w.strip()]
+
+    if len(current_vals) != len(ticker_list):
+        current_vals = [0.0] * len(ticker_list)
+    if len(target_vals) != len(ticker_list):
+        raise HTTPException(status_code=400, detail="target_weights length must match tickers")
+
+    current = dict(zip(ticker_list, current_vals))
+    target  = dict(zip(ticker_list, target_vals))
+
+    all_tickers = sorted(set(current) | set(target))
+    trades = []
+    for ticker in all_tickers:
+        current_w = current.get(ticker, 0.0)
+        target_w  = target.get(ticker, 0.0)
+        delta_w   = target_w - current_w
+        dollar    = delta_w * portfolio_value
+        if abs(dollar) < 1:
+            continue
+        trades.append({
+            "ticker":         ticker,
+            "action":         "BUY" if delta_w > 0 else "SELL",
+            "current_weight": round(current_w, 4),
+            "target_weight":  round(target_w, 4),
+            "delta_weight":   round(delta_w, 4),
+            "dollar_amount":  round(abs(dollar), 2),
+        })
+
+    trades.sort(key=lambda t: -abs(t["dollar_amount"]))
+    return {"trades": trades, "portfolio_value": portfolio_value}
 
 
 @app.post("/portfolio/rebalance")
@@ -2131,12 +2381,13 @@ async def get_dashboard(refresh: bool = False) -> dict:
             "weekly_net_bn": None, "status": "UNKNOWN",
         }
         try:
-            future_str = (today + pd.DateOffset(days=14)).strftime("%Y-%m-%d")
+            # upcoming_auctions endpoint returns the next ~90 scheduled auctions.
+            # auctions_query is historical-only; filtering future issue_dates → 404.
             treas_url = (
-                "https://api.fiscaldata.treasury.gov/services/api/v1"
-                "/accounting/od/auctions_query"
-                f"?sort=issue_date&filter=issue_date:gte:{today_str},issue_date:lte:{future_str}"
-                "&fields=security_type,cusip,auction_date,issue_date,offering_amt"
+                "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1"
+                "/accounting/od/upcoming_auctions"
+                f"?sort=issue_date&filter=issue_date:gte:{today_str}"
+                "&fields=security_type,security_term,auction_date,issue_date,offering_amt"
                 "&page%5Bnumber%5D=1&page%5Bsize%5D=25&format=json"
             )
             req = urllib.request.Request(
@@ -2154,15 +2405,18 @@ async def get_dashboard(refresh: bool = False) -> dict:
                 if item.get("security_type") in ("Bill", "Note", "Bond"):
                     amt_raw = item.get("offering_amt") or "0"
                     try:
-                        # API returns offering_amt in USD thousands → convert to billions
-                        amt_bn = round(float(amt_raw) / 1_000_000, 1)
+                        # FiscalData upcoming_auctions returns offering_amt in raw dollars
+                        # (not thousands or millions) → divide by 1e9 to get billions
+                        amt_bn = round(float(amt_raw) / 1_000_000_000, 1)
                     except Exception:
                         amt_bn = 0.0
                     if amt_bn > 0:
+                        sec_type = item.get("security_type", "")
+                        sec_term = item.get("security_term", "")
                         upcoming.append({
                             "settlement_date": item.get("issue_date", ""),
                             "auction_date": item.get("auction_date", ""),
-                            "type": item.get("security_type", ""),
+                            "type": f"{sec_type} {sec_term}".strip(),
                             "amount_bn": amt_bn,
                         })
 
@@ -2171,15 +2425,38 @@ async def get_dashboard(refresh: bool = False) -> dict:
 
             if upcoming:
                 week_cutoff = (today + pd.DateOffset(days=7)).strftime("%Y-%m-%d")
-                weekly_net = round(
+                # Gross settlement = new issuance settling in the next 7 days.
+                # This is NOT net reserve drain — Treasury routinely rolls $200–350B+
+                # gross per week (4wk/8wk/13wk/26wk bills overlapping). Net new drain
+                # = gross minus maturities; without maturity data we can't compute it
+                # here. Use this as a rough liquidity-pressure indicator only.
+                weekly_gross = round(
                     sum(x["amount_bn"] for x in upcoming if x["settlement_date"] <= week_cutoff), 1
                 )
-                treasury_drain["weekly_net_bn"] = weekly_net
+                treasury_drain["weekly_gross_bn"] = weekly_gross
+                # Keep legacy key so older clients don't break
+                treasury_drain["weekly_net_bn"] = weekly_gross
 
                 n = upcoming[0]
+                # Stress signal hierarchy (Sep-2019 template):
+                #   CODE_RED  → SOFR > IORB (repo stress already in prints), OR
+                #               RRP buffer exhausted (<$50B) with heavy gross issuance
+                #               (>$250B gross) so settlement hits bank reserves directly.
+                #   MONITOR   → RRP cushion thinning (<$150B) or very large gross week
+                #               (>$300B, which is elevated but can still be routine rollover).
+                #   NORMAL    → everything else.
+                # NOTE: gross issuance alone is not a drain signal — Treasury rolls
+                # $200–350B+ most weeks. The meaningful variable is NET new money raised
+                # minus same-week maturities, which requires maturity data we don't
+                # fetch here. Treat gross as a rough pressure indicator only.
+                sofr_above_iorb = (
+                    sofr is not None and iorb is not None and sofr > iorb
+                )
                 drain_status = (
-                    "CODE_RED" if weekly_net > 100 and (rrp_bn or 999) < 50
-                    else "MONITOR" if weekly_net > 50
+                    "CODE_RED"
+                    if sofr_above_iorb or ((rrp_bn or 999) < 50 and weekly_gross > 250)
+                    else "MONITOR"
+                    if (rrp_bn or 999) < 150 or weekly_gross > 300
                     else "NORMAL"
                 )
                 treasury_drain["next_drain"] = {

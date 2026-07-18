@@ -1,0 +1,48 @@
+[
+  {
+    "name": "Oasis Terminal",
+    "description": "AI-powered equity research and portfolio construction — multi-analyst signals, Black-Litterman optimisation, macro event risk, and benchmark analytics.",
+    "tabs": {
+      "research": {
+        "id": "research",
+        "name": "Research",
+        "layout": [
+          {"i": "analyst_signals", "x": 0, "y": 0, "w": 40, "h": 12}
+        ]
+      },
+      "portfolio": {
+        "id": "portfolio",
+        "name": "Portfolio",
+        "layout": [
+          {"i": "portfolio_weights",   "x": 0,  "y": 0, "w": 20, "h": 9},
+          {"i": "portfolio_sizing",    "x": 20, "y": 0, "w": 20, "h": 9},
+          {"i": "portfolio_rebalance", "x": 0,  "y": 9, "w": 20, "h": 9},
+          {"i": "portfolio_benchmark", "x": 20, "y": 9, "w": 20, "h": 9}
+        ]
+      },
+      "macro": {
+        "id": "macro",
+        "name": "Macro",
+        "layout": [
+          {"i": "macro_calendar",       "x": 0,  "y": 0, "w": 20, "h": 9},
+          {"i": "position_risk_matrix", "x": 20, "y": 0, "w": 20, "h": 9},
+          {"i": "insider_signals",      "x": 0,  "y": 9, "w": 40, "h": 9}
+        ]
+      },
+      "valuation": {
+        "id": "valuation",
+        "name": "Valuation",
+        "layout": [
+          {"i": "sp500_scorecard", "x": 0, "y": 0, "w": 40, "h": 12}
+        ]
+      },
+      "reports": {
+        "id": "reports",
+        "name": "Reports",
+        "layout": [
+          {"i": "report_library", "x": 0, "y": 0, "w": 40, "h": 12}
+        ]
+      }
+    }
+  }
+]

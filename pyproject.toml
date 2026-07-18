@@ -65,6 +65,7 @@ include = ["tradingagents*", "cli*", "desk_server*", "desk_adapter*"]
 
 [tool.setuptools.package-data]
 cli = ["static/*"]
+desk_server = ["*.json"]          # widgets.json + apps.json for OpenBB Workspace
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
