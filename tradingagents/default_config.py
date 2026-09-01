@@ -19,6 +19,7 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_BENCHMARK_TICKER":     "benchmark_ticker",
     "TRADINGAGENTS_TEMPERATURE":          "temperature",
     "TRADINGAGENTS_LLM_MAX_RETRIES":      "llm_max_retries",
+    "TRADINGAGENTS_MAX_TOKENS":           "max_tokens",
     # Provider-specific reasoning/thinking knobs (None = each provider's own
     # default). Settable here for non-interactive runs; the CLI also offers an
     # interactive choice, which is skipped when the matching var is set.
@@ -79,7 +80,7 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "memory_log_max_entries": None,
     # LLM settings
     "llm_provider": "openai",
-    "deep_think_llm": "gpt-5.5",
+"deep_think_llm": "gpt-5.5",
     "quick_think_llm": "gpt-5.4-mini",
     # ---------------------------------------------------------------------------
     # Split-model debate configuration
@@ -144,12 +145,13 @@ DEFAULT_CONFIG = _apply_env_overrides({
     # provider/SDK at its own default (usually 2). Raise it to ride out bursty
     # 429 throttling on rate-limited deployments instead of aborting a run (#1091).
     "llm_max_retries": None,
-    # Maximum output tokens per LLM call. OpenRouter (and similar credit-based
+# Maximum output tokens per LLM call. OpenRouter (and similar credit-based
     # providers) reserve credits based on max_tokens upfront — not actual usage.
     # DeepSeek V4 Pro defaults to 65,536 which burns credits 8–10× faster than
     # needed. 8192 is plenty for every node in the graph (analyst reports: 2–4K,
     # debate turns: 1–3K, PM decision: 3–6K). Set None to use each model's own
-    # default (not recommended for OpenRouter usage-based billing).
+    # default (not recommended for OpenRouter usage-based billing). Also bounds
+    # models that hang or trip gateway idle timeouts (#1204).
     "max_tokens": 8192,
     # Parallel analyst execution: when True (default), all selected analysts
     # run concurrently in threads — typically 3× faster than sequential.
