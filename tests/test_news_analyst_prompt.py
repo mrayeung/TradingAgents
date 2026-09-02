@@ -23,3 +23,12 @@ def test_news_prompt_matches_get_news_signature():
     src = inspect.getsource(na)
     assert "get_news(ticker, start_date, end_date)" in src
     assert "get_news(query" not in src
+
+
+@pytest.mark.unit
+def test_news_prompt_is_headlines_only():
+    src = inspect.getsource(na)
+    assert "get_macro_indicators" not in src
+    assert "get_prediction_markets" not in src
+    assert "headlines-only" in src
+    assert "Macro Analyst" in src

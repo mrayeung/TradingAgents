@@ -18,6 +18,9 @@ class AnalystExecutionPlan:
 
 
 ANALYST_NODE_SPECS: dict[str, AnalystNodeSpec] = {
+    # Macro Analyst is a sequential Stage-1 node (Quant → Macro → selected
+    # analysts). It is intentionally absent from this map so it cannot be
+    # folded into selected_analysts / Parallel Analysts.
     "market": AnalystNodeSpec(
         key="market",
         agent_node="Market Analyst",

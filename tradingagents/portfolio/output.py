@@ -355,6 +355,7 @@ def generate_ticker_report(
     ]
 
     # ---- Analyst reports ----
+    lines += _section("Macro Analysis", full_state.get("macro_report", ""))
     lines += _section("Market Analysis", full_state.get("market_report", ""))
     lines += _section("Sentiment Analysis", full_state.get("sentiment_report", ""))
     lines += _section("News Analysis", full_state.get("news_report", ""))

@@ -19,6 +19,10 @@ def write_report_tree(final_state: dict, ticker: str, save_path) -> Path:
     # 1. Analysts
     analysts_dir = save_path / "1_analysts"
     analyst_parts = []
+    if final_state.get("macro_report"):
+        analysts_dir.mkdir(exist_ok=True)
+        (analysts_dir / "macro.md").write_text(final_state["macro_report"], encoding="utf-8")
+        analyst_parts.append(("Macro Analyst", final_state["macro_report"]))
     if final_state.get("market_report"):
         analysts_dir.mkdir(exist_ok=True)
         (analysts_dir / "market.md").write_text(final_state["market_report"], encoding="utf-8")

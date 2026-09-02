@@ -56,9 +56,12 @@ class AgentState(MessagesState):
     market_report: Annotated[str, "Report from the Market Analyst"]
     market_technician_report: Annotated[str, "Report from the Market Technician (macro-technical: breadth, Fed regime, intermarket, volume structure)"]
     quantitative_report: Annotated[str, "Report from the Quantitative Analyst (Markov 2.0 regime/edge signal + recommendation)"]
+    macro_report: Annotated[
+        str, "Report from the Macro Analyst (top-down rates/USD/credit/EM, calendar, cyclical vs defensive, risk-off)"
+    ]
     sentiment_report: Annotated[str, "Report from the Sentiment Analyst"]
     news_report: Annotated[
-        str, "Report from the News Researcher of current world affairs"
+        str, "Report from the News Researcher of company and global headlines"
     ]
     fundamentals_report: Annotated[str, "Report from the Fundamentals Researcher"]
     valuation_report: Annotated[str, "Report from the Valuation Analyst"]

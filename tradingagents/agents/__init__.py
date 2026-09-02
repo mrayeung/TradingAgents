@@ -1,5 +1,5 @@
 from .analysts.fundamentals_analyst import create_fundamentals_analyst
-from .analysts.valuation_analyst import create_valuation_analyst
+from .analysts.macro_analyst import create_macro_analyst
 from .analysts.market_analyst import create_market_analyst
 from .analysts.market_technician import create_market_technician
 from .analysts.news_analyst import create_news_analyst
@@ -8,6 +8,7 @@ from .analysts.sentiment_analyst import (
     create_sentiment_analyst,
     create_social_media_analyst,  # deprecated alias kept for back-compat
 )
+from .analysts.valuation_analyst import create_valuation_analyst
 from .managers.portfolio_manager import create_portfolio_manager
 from .managers.research_manager import create_research_manager
 from .researchers.bear_researcher import create_bear_researcher
@@ -32,6 +33,7 @@ __all__ = [
     "create_market_analyst",
     "create_market_technician",
     "create_neutral_debator",
+    "create_macro_analyst",
     "create_news_analyst",
     "create_quantitative_analyst",
     "create_aggressive_debator",

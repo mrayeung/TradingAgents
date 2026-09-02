@@ -14,6 +14,7 @@ def create_bull_researcher(llm):
         market_research_report = state["market_report"]
         market_technician_report = state.get("market_technician_report", "")
         quantitative_report = state.get("quantitative_report", "")
+        macro_report = state.get("macro_report", "")
         sentiment_report = state["sentiment_report"]
         news_report = state["news_report"]
         fundamentals_report = state["fundamentals_report"]
@@ -40,6 +41,7 @@ Resources available:
 Market research report: {market_research_report}
 Market technician (macro/breadth/intermarket/volume structure) report: {market_technician_report}
 Quantitative analyst (Markov 2.0 regime/edge) report: {quantitative_report}
+Macro analyst (top-down rates/USD/credit/EM, calendar, cyclical vs defensive, risk-off) report: {macro_report}
 Social media sentiment report: {sentiment_report}
 Latest world affairs news: {news_report}
 {fundamentals_label}: {fundamentals_report}

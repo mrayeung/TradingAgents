@@ -45,7 +45,6 @@ from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.graph.analyst_execution import (
     AnalystWallTimeTracker,
     build_analyst_execution_plan,
-    get_initial_analyst_node,
     sync_analyst_tracker_from_chunk,
 )
 from tradingagents.graph.trading_graph import TradingAgentsGraph
@@ -84,6 +83,7 @@ class MessageBuffer:
     # analyst_key: which analyst selection controls this section (None = always included)
     # finalizing_agent: which agent must be "completed" for this report to count as done
     REPORT_SECTIONS = {
+        "macro_report": (None, "Macro Analyst"),
         "market_report": ("market", "Market Analyst"),
         "sentiment_report": ("social", "Sentiment Analyst"),
         "news_report": ("news", "News Analyst"),
@@ -116,6 +116,9 @@ class MessageBuffer:
 
         # Build agent_status dynamically
         self.agent_status = {}
+
+        # Stage-1 Macro Analyst always runs (not user-selectable).
+        self.agent_status["Macro Analyst"] = "pending"
 
         # Add selected analysts
         for analyst_key in self.selected_analysts:
@@ -197,6 +200,7 @@ class MessageBuffer:
                 "market_report": "Market Analysis",
                 "sentiment_report": "Social Sentiment",
                 "news_report": "News Analysis",
+                "macro_report": "Macro Analysis",
                 "fundamentals_report": "Fundamentals Analysis",
                 "investment_plan": "Research Team Decision",
                 "trader_investment_plan": "Trading Team Plan",
@@ -213,9 +217,19 @@ class MessageBuffer:
         report_parts = []
 
         # Analyst Team Reports - use .get() to handle missing sections
-        analyst_sections = ["market_report", "sentiment_report", "news_report", "fundamentals_report"]
+        analyst_sections = [
+            "macro_report",
+            "market_report",
+            "sentiment_report",
+            "news_report",
+            "fundamentals_report",
+        ]
         if any(self.report_sections.get(section) for section in analyst_sections):
             report_parts.append("## Analyst Team Reports")
+            if self.report_sections.get("macro_report"):
+                report_parts.append(
+                    f"### Macro Analysis\n{self.report_sections['macro_report']}"
+                )
             if self.report_sections.get("market_report"):
                 report_parts.append(
                     f"### Market Analysis\n{self.report_sections['market_report']}"
@@ -307,6 +321,7 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
     # Group agents by team - filter to only include agents in agent_status
     all_teams = {
         "Analyst Team": [
+            "Macro Analyst",
             "Market Analyst",
             "Market Technician",
             "Sentiment Analyst",
@@ -766,6 +781,8 @@ def display_complete_report(final_state):
 
     # I. Analyst Team Reports
     analysts = []
+    if final_state.get("macro_report"):
+        analysts.append(("Macro Analyst", final_state["macro_report"]))
     if final_state.get("market_report"):
         analysts.append(("Market Analyst", final_state["market_report"]))
     if final_state.get("sentiment_report"):
@@ -861,6 +878,16 @@ def update_analyst_statuses(message_buffer, chunk, wall_time_tracker=None):
 
     if wall_time_tracker is not None:
         sync_analyst_tracker_from_chunk(wall_time_tracker, chunk)
+
+    # Stage-1 Macro Analyst always runs before selected/parallel analysts.
+    if "Macro Analyst" in message_buffer.agent_status:
+        if chunk.get("macro_report"):
+            message_buffer.update_report_section("macro_report", chunk["macro_report"])
+        if message_buffer.report_sections.get("macro_report"):
+            message_buffer.update_agent_status("Macro Analyst", "completed")
+        else:
+            message_buffer.update_agent_status("Macro Analyst", "in_progress")
+            found_active = True
 
     for analyst_key in ANALYST_ORDER:
         if analyst_key not in selected:
@@ -1094,9 +1121,8 @@ def run_analysis(checkpoint: bool | None = None):
         )
         update_display(layout, stats_handler=stats_handler, start_time=start_time)
 
-        # Update agent status to in_progress for the first analyst
-        first_analyst = get_initial_analyst_node(analyst_execution_plan)
-        message_buffer.update_agent_status(first_analyst, "in_progress")
+        # Stage-1 Macro Analyst is in_progress first (Quant is deterministic, then Macro).
+        message_buffer.update_agent_status("Macro Analyst", "in_progress")
         analyst_wall_time_tracker.mark_started(selected_analyst_keys[0])
         update_display(layout, stats_handler=stats_handler, start_time=start_time)
 

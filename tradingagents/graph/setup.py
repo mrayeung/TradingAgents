@@ -11,6 +11,7 @@ from tradingagents.agents import (
     create_bull_researcher,
     create_conservative_debator,
     create_fundamentals_analyst,
+    create_macro_analyst,
     create_market_analyst,
     create_market_technician,
     create_msg_delete,
@@ -97,6 +98,9 @@ class GraphSetup:
                 providers with strict per-key RPM limits (NVIDIA NIM free tier,
                 OpenRouter free models, local Ollama) where simultaneous calls
                 would trigger 429 errors.
+
+        Stage-1 nodes (Quantitative Analyst, Macro Analyst) always run and are
+        not part of ``selected_analysts`` / Parallel Analysts.
         """
         plan = build_analyst_execution_plan(selected_analysts)
 
@@ -131,6 +135,13 @@ class GraphSetup:
         # independent of the selected-analyst plan, and feeds a regime/edge signal
         # into the debate and decision agents via ``quantitative_report``.
         workflow.add_node("Quantitative Analyst", create_quantitative_analyst())
+
+        # Macro Analyst is a sequential Stage-1 node after Quant: top-down
+        # rates/USD/credit/EM framing so News can stay headlines-only.
+        # It is NOT part of selected_analysts / Parallel Analysts.
+        workflow.add_node("Macro Analyst", create_macro_analyst(self.quick_thinking_llm))
+        workflow.add_node("Msg Clear Macro", create_msg_delete())
+        workflow.add_node("tools_macro", self.tool_nodes["macro"])
 
         if parallel_analysts:
             # ── Parallel mode (default) ──────────────────────────────────────
@@ -167,15 +178,23 @@ class GraphSetup:
         workflow.add_node("Portfolio Manager", portfolio_manager_node)
 
         # Define edges
+        # START → Quant → Macro Analyst (tool loop) → Parallel/sequential analysts → Bull
         workflow.add_edge(START, "Quantitative Analyst")
+        workflow.add_edge("Quantitative Analyst", "Macro Analyst")
+        workflow.add_conditional_edges(
+            "Macro Analyst",
+            self.conditional_logic.should_continue_macro,
+            ["tools_macro", "Msg Clear Macro"],
+        )
+        workflow.add_edge("tools_macro", "Macro Analyst")
 
         if parallel_analysts:
-            # Parallel mode: Quant → Parallel Analysts (all at once) → Bull
-            workflow.add_edge("Quantitative Analyst", "Parallel Analysts")
+            # Parallel mode: Macro → Parallel Analysts (all at once) → Bull
+            workflow.add_edge("Msg Clear Macro", "Parallel Analysts")
             workflow.add_edge("Parallel Analysts", "Bull Researcher")
         else:
-            # Sequential mode: Quant → first analyst → … → last analyst → Bull
-            workflow.add_edge("Quantitative Analyst", plan.specs[0].agent_node)
+            # Sequential mode: Macro → first selected analyst → … → last analyst → Bull
+            workflow.add_edge("Msg Clear Macro", plan.specs[0].agent_node)
             for i, spec in enumerate(plan.specs):
                 workflow.add_conditional_edges(
                     spec.agent_node,
