@@ -27,11 +27,11 @@ from tradingagents.agents.utils.agent_utils import (
     get_verified_market_snapshot,
     resolve_instrument_identity,
 )
+from tradingagents.agents.utils.memory import TradingMemoryLog
 from tradingagents.agents.utils.valuation_tools import (
     get_peer_comparables,
     get_valuation_metrics,
 )
-from tradingagents.agents.utils.memory import TradingMemoryLog
 from tradingagents.dataflows.config import set_config
 from tradingagents.dataflows.utils import safe_ticker_component
 from tradingagents.default_config import DEFAULT_CONFIG
