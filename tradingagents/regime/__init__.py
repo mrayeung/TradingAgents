@@ -9,8 +9,8 @@ Research tooling only — not investment advice.
 
 from .markov2 import (
     BEAR,
-    SIDE,
     BULL,
+    SIDE,
     STATE_NAMES,
     MarkovConfig,
     MarkovResult,

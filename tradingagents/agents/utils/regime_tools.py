@@ -12,7 +12,7 @@ import numpy as np
 from langchain_core.tools import tool
 
 from tradingagents.dataflows.interface import route_to_vendor
-from tradingagents.regime import MarkovConfig, STATE_NAMES, analyze
+from tradingagents.regime import MarkovConfig, analyze
 
 
 def _parse_ohlc(raw: str):
@@ -42,8 +42,8 @@ def _parse_ohlc(raw: str):
             continue
     c = np.array(closes, dtype=float)
     h = np.array(highs, dtype=float) if highs and len(highs) == len(closes) else None
-    l = np.array(lows, dtype=float) if lows and len(lows) == len(closes) else None
-    return c, h, l
+    low_arr = np.array(lows, dtype=float) if lows and len(lows) == len(closes) else None
+    return c, h, low_arr
 
 
 def _reco_bias(res) -> str:

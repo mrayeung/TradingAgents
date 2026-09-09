@@ -34,17 +34,11 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-    load_dotenv(".env.enterprise", override=False)
-except ImportError:
-    pass
-
+from dotenv import load_dotenv
 from rich.console import Console
 from rich.progress import (
     BarColumn,
@@ -55,9 +49,6 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 from rich.rule import Rule
-from rich.text import Text
-
-_console = Console()
 
 from tradingagents.agents.portfolio import (
     MomentumQualityScreener,
@@ -70,6 +61,10 @@ from tradingagents.agents.portfolio import (
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.llm_clients import create_llm_client
 
+load_dotenv()
+load_dotenv(".env.enterprise", override=False)
+
+_console = Console()
 logger = logging.getLogger(__name__)
 
 
@@ -83,16 +78,16 @@ class PortfolioRunResult:
     """Container returned by PortfolioGraph.run()."""
 
     trade_date: str
-    screener_results: List[ScreenerResult] = field(default_factory=list)
-    ticker_decisions: List[Tuple[str, str, str]] = field(default_factory=list)
+    screener_results: list[ScreenerResult] = field(default_factory=list)
+    ticker_decisions: list[tuple[str, str, str]] = field(default_factory=list)
     """List of (ticker, final_trade_decision, trader_investment_plan)."""
 
-    portfolio_view: Optional[PortfolioView] = None
-    rebalance_recommendation: Optional[RebalanceRecommendation] = None
-    output_paths: Dict[str, str] = field(default_factory=dict)
+    portfolio_view: PortfolioView | None = None
+    rebalance_recommendation: RebalanceRecommendation | None = None
+    output_paths: dict[str, str] = field(default_factory=dict)
     """{'excel': '/path/to/portfolio.xlsx', 'markdown': '/path/to/memo.md'}"""
 
-    errors: List[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
     """Non-fatal errors encountered during the run."""
 
 
@@ -119,10 +114,10 @@ class PortfolioGraph:
 
     def __init__(
         self,
-        selected_analysts: Optional[List[str]] = None,
+        selected_analysts: list[str] | None = None,
         debug: bool = False,
-        config: Optional[Dict[str, Any]] = None,
-        callbacks: Optional[List] = None,
+        config: dict[str, Any] | None = None,
+        callbacks: list | None = None,
     ):
         self.selected_analysts = selected_analysts or [
             "market", "social", "news", "fundamentals"
@@ -178,7 +173,7 @@ class PortfolioGraph:
     # Provider helpers (mirrors TradingAgentsGraph._get_provider_kwargs)
     # ------------------------------------------------------------------
 
-    def _get_provider_kwargs(self) -> Dict[str, Any]:
+    def _get_provider_kwargs(self) -> dict[str, Any]:
         kwargs = {}
         provider = self.config.get("llm_provider", "").lower()
         if provider == "google":
@@ -241,9 +236,9 @@ class PortfolioGraph:
         self,
         ticker: str,
         trade_date: str,
-        progress: Optional[Any] = None,
-        task_id: Optional[Any] = None,
-    ) -> Optional[Tuple[str, str, str, dict]]:
+        progress: Any | None = None,
+        task_id: Any | None = None,
+    ) -> tuple[str, str, str, dict] | None:
         """Run the full TradingAgentsGraph pipeline for one ticker.
 
         Returns
@@ -271,10 +266,10 @@ class PortfolioGraph:
 
     def run(
         self,
-        trade_date: Optional[str] = None,
-        current_holdings: Optional[Dict[str, float]] = None,
-        rebalance_type: Optional[str] = None,
-        tickers_override: Optional[List[str]] = None,
+        trade_date: str | None = None,
+        current_holdings: dict[str, float] | None = None,
+        rebalance_type: str | None = None,
+        tickers_override: list[str] | None = None,
     ) -> PortfolioRunResult:
         """Run the full portfolio construction (and optional rebalancing) pipeline."""
         trade_date = trade_date or str(date.today())
@@ -336,7 +331,7 @@ class PortfolioGraph:
 
         if n_filtered:
             # Group eliminated tickers by reason for a concise summary
-            reason_counts: Dict[str, int] = {}
+            reason_counts: dict[str, int] = {}
             for ft in filtered_tickers:
                 reason = (ft.filter_reason or "other").split(":")[0].strip()
                 reason_counts[reason] = reason_counts.get(reason, 0) + 1
@@ -378,13 +373,14 @@ class PortfolioGraph:
             f"[dim]({len(candidate_tickers)} tickers  ·  {max_workers} parallel workers)[/dim]"
         )
 
-        ticker_decisions: List[Tuple[str, str, str]] = []
+        ticker_decisions: list[tuple[str, str, str]] = []
         n = len(candidate_tickers)
 
         from concurrent.futures import ThreadPoolExecutor, as_completed
+
         from tradingagents.portfolio.output import generate_ticker_report
 
-        def _analyse_and_report(ticker: str) -> Optional[Tuple[str, str, str, dict, float]]:
+        def _analyse_and_report(ticker: str) -> tuple[str, str, str, dict, float] | None:
             """Worker: run full pipeline + save report. Returns 5-tuple or None."""
             dash.update_ticker_start(ticker, 0, n)
             t0 = time.time()
@@ -616,8 +612,8 @@ class PortfolioGraph:
     def check_drift(
         self,
         portfolio_view: PortfolioView,
-        current_holdings: Dict[str, float],
-        trade_date: Optional[str] = None,
+        current_holdings: dict[str, float],
+        trade_date: str | None = None,
     ) -> RebalanceRecommendation:
         """Check current holdings against a target portfolio for drift triggers.
 

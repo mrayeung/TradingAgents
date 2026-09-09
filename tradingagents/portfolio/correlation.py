@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
-from typing import List, Optional
 
 import numpy as np
 
@@ -21,10 +20,10 @@ logger = logging.getLogger(__name__)
 
 
 def compute_correlation_matrix(
-    tickers:      List[str],
+    tickers:      list[str],
     trade_date:   str,
     lookback_days: int = 252,      # ~1 trading year
-) -> Optional[dict]:
+) -> dict | None:
     """Fetch daily close prices and return a correlation-matrix payload.
 
     Parameters

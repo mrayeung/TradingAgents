@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import yfinance as yf
 
-
 SECTOR_VALUATION_FRAMEWORKS: dict[str, dict] = {
     "Technology": {
         "primary_metrics": ["forward_pe", "ev_to_revenue", "ev_to_ebitda", "price_to_sales"],
@@ -130,7 +129,7 @@ def _fmt_num(val: float | None, decimals: int = 1, suffix: str = "") -> str:
         return "N/A"
     try:
         f = float(val)
-        if not (f == f):  # NaN check
+        if f != f:  # NaN check
             return "N/A"
         return f"{f:.{decimals}f}{suffix}"
     except (TypeError, ValueError):
@@ -143,7 +142,7 @@ def _fmt_pct(val: float | None) -> str:
         return "N/A"
     try:
         f = float(val)
-        if not (f == f):
+        if f != f:
             return "N/A"
         return f"{f * 100:.1f}%"
     except (TypeError, ValueError):

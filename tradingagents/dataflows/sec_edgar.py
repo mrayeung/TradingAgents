@@ -22,7 +22,6 @@ import re
 import time
 from datetime import datetime, timedelta
 from functools import lru_cache
-from typing import Optional
 
 import requests
 
@@ -129,7 +128,9 @@ def _find_recent_filings(
     end_dt   = datetime.strptime(end_date,   "%Y-%m-%d")
 
     results = []
-    for form, date, accession, doc in zip(forms, dates, accessions, primary_docs):
+    for form, date, accession, doc in zip(
+        forms, dates, accessions, primary_docs, strict=False
+    ):
         if form not in form_types:
             continue
         try:

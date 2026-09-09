@@ -342,8 +342,9 @@ def main():
         stage = "initializing"
 
     # ── Build dashboard data ──────────────────────────────────────────
-    from tradingagents.portfolio.dashboard import PortfolioDashboard
     from datetime import datetime
+
+    from tradingagents.portfolio.dashboard import PortfolioDashboard
 
     dash = PortfolioDashboard(output_dir=output_dir, trade_date=trade_date)
 

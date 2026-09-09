@@ -24,7 +24,6 @@ delta) are computed deterministically.
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Optional
 
 from tradingagents.agents.portfolio.schemas import (
     PortfolioView,
@@ -54,11 +53,11 @@ def _priority(drift_pct: float, action: RebalanceAction) -> str:
 
 
 def _compute_trades(
-    target_holdings: Dict[str, float],
-    current_holdings: Dict[str, float],
+    target_holdings: dict[str, float],
+    current_holdings: dict[str, float],
     drift_threshold: float,
     rebalance_type: str,
-) -> List[RebalanceTrade]:
+) -> list[RebalanceTrade]:
     """Compute deterministic rebalance trades.
 
     Parameters
@@ -75,7 +74,7 @@ def _compute_trades(
     List[RebalanceTrade]  sorted by |weight_delta| descending
     """
     all_tickers = set(target_holdings) | set(current_holdings)
-    trades: List[RebalanceTrade] = []
+    trades: list[RebalanceTrade] = []
 
     for ticker in all_tickers:
         current_w = current_holdings.get(ticker, 0.0)
@@ -91,9 +90,7 @@ def _compute_trades(
         # Determine action
         if target_w == 0 and current_w > 0:
             action = RebalanceAction.SELL
-        elif current_w == 0 and target_w > 0:
-            action = RebalanceAction.BUY
-        elif delta > 0.001:
+        elif current_w == 0 and target_w > 0 or delta > 0.001:
             action = RebalanceAction.BUY
         elif delta < -0.001:
             action = RebalanceAction.TRIM
@@ -105,10 +102,9 @@ def _compute_trades(
             if action == RebalanceAction.HOLD:
                 continue
             # New/exit positions are always included
-            if action not in (RebalanceAction.BUY, RebalanceAction.SELL):
-                if drift_pct < drift_threshold:
-                    action = RebalanceAction.HOLD
-                    continue
+            if action not in (RebalanceAction.BUY, RebalanceAction.SELL) and drift_pct < drift_threshold:
+                action = RebalanceAction.HOLD
+                continue
 
         trades.append(
             RebalanceTrade(
@@ -129,7 +125,7 @@ def _compute_trades(
 
 
 def _build_rationale_prompt(
-    trades: List[RebalanceTrade],
+    trades: list[RebalanceTrade],
     portfolio_view: PortfolioView,
     rebalance_type: str,
 ) -> str:
@@ -184,15 +180,15 @@ def _build_rationale_prompt(
 
 def _parse_rationale_response(
     response_text: str,
-    trades: List[RebalanceTrade],
-) -> tuple[List[RebalanceTrade], str, str]:
+    trades: list[RebalanceTrade],
+) -> tuple[list[RebalanceTrade], str, str]:
     """Parse LLM rationale JSON and summary sections, filling in trade rationale."""
     import json
     import re
 
     # Try to parse JSON array
     json_match = re.search(r"(\[\s*\{.*?\}\s*\])", response_text, re.DOTALL)
-    rationale_map: Dict[str, str] = {}
+    rationale_map: dict[str, str] = {}
     if json_match:
         try:
             items = json.loads(json_match.group(1))
@@ -241,10 +237,10 @@ def create_rebalancing_agent(llm):
 
     def generate_rebalance(
         portfolio_view: PortfolioView,
-        current_holdings: Dict[str, float],
+        current_holdings: dict[str, float],
         trade_date: str,
         rebalance_type: str = "monthly_scheduled",
-        drift_threshold: Optional[float] = None,
+        drift_threshold: float | None = None,
     ) -> RebalanceRecommendation:
         """Generate a rebalance recommendation.
 

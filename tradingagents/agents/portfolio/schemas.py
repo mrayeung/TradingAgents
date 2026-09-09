@@ -13,10 +13,8 @@ so each weight is grounded in the individual agent's own sizing guidance.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
-
 
 # ---------------------------------------------------------------------------
 # Screener
@@ -33,68 +31,68 @@ class ScreenerResult(BaseModel):
     """
 
     ticker: str
-    sector: Optional[str] = None
-    industry: Optional[str] = None
-    market_cap: Optional[float] = None      # $B
-    avg_daily_volume: Optional[float] = None  # $M average daily dollar volume
-    price: Optional[float] = None
-    beta: Optional[float] = None
+    sector: str | None = None
+    industry: str | None = None
+    market_cap: float | None = None      # $B
+    avg_daily_volume: float | None = None  # $M average daily dollar volume
+    price: float | None = None
+    beta: float | None = None
 
     # ── Hard-filter metadata ──────────────────────────────────────────────
     passed_hard_filters: bool = True
-    filter_reason: Optional[str] = None     # Why a ticker was eliminated
+    filter_reason: str | None = None     # Why a ticker was eliminated
 
     # ── Factor 1: Quality ─────────────────────────────────────────────────
     # (ROE, FCF margin, gross margin, interest coverage, debt/EBITDA)
-    roe: Optional[float] = None                 # Return on equity (decimal)
-    roa: Optional[float] = None                 # Return on assets (decimal)
-    roic: Optional[float] = None                # Return on invested capital
-    gross_margin: Optional[float] = None        # Gross profit margin
-    operating_margin: Optional[float] = None    # Operating margin
-    fcf_margin: Optional[float] = None          # Free cash flow / Revenue
-    fcf_yield: Optional[float] = None           # FCF / Market Cap
-    debt_to_ebitda: Optional[float] = None      # Net Debt / EBITDA
-    interest_coverage: Optional[float] = None   # EBIT / Interest expense
-    current_ratio: Optional[float] = None
-    quality_score: Optional[float] = None       # Composite z-score
+    roe: float | None = None                 # Return on equity (decimal)
+    roa: float | None = None                 # Return on assets (decimal)
+    roic: float | None = None                # Return on invested capital
+    gross_margin: float | None = None        # Gross profit margin
+    operating_margin: float | None = None    # Operating margin
+    fcf_margin: float | None = None          # Free cash flow / Revenue
+    fcf_yield: float | None = None           # FCF / Market Cap
+    debt_to_ebitda: float | None = None      # Net Debt / EBITDA
+    interest_coverage: float | None = None   # EBIT / Interest expense
+    current_ratio: float | None = None
+    quality_score: float | None = None       # Composite z-score
 
     # ── Factor 2: Growth ──────────────────────────────────────────────────
     # (Revenue growth, EPS growth, forward EPS growth, FCF growth proxy)
-    revenue_growth_yoy: Optional[float] = None   # YoY revenue growth
-    eps_growth_yoy: Optional[float] = None       # YoY EPS growth (trailing)
-    forward_eps_growth: Optional[float] = None   # Forward vs trailing EPS
-    earnings_growth_3y: Optional[float] = None   # 3-year avg earnings growth
-    growth_score: Optional[float] = None
+    revenue_growth_yoy: float | None = None   # YoY revenue growth
+    eps_growth_yoy: float | None = None       # YoY EPS growth (trailing)
+    forward_eps_growth: float | None = None   # Forward vs trailing EPS
+    earnings_growth_3y: float | None = None   # 3-year avg earnings growth
+    growth_score: float | None = None
 
     # ── Factor 3: Valuation ───────────────────────────────────────────────
     # (PEG, EV/EBITDA, FCF yield, forward P/E — GARP approach)
-    pe_trailing: Optional[float] = None
-    pe_forward: Optional[float] = None
-    peg_ratio: Optional[float] = None            # P/E ÷ growth (GARP key metric)
-    ev_to_ebitda: Optional[float] = None
-    price_to_sales: Optional[float] = None
-    price_to_book: Optional[float] = None
-    valuation_score: Optional[float] = None
+    pe_trailing: float | None = None
+    pe_forward: float | None = None
+    peg_ratio: float | None = None            # P/E ÷ growth (GARP key metric)
+    ev_to_ebitda: float | None = None
+    price_to_sales: float | None = None
+    price_to_book: float | None = None
+    valuation_score: float | None = None
 
     # ── Factor 4: Momentum ────────────────────────────────────────────────
     # (Cross-sectional price momentum across multiple windows)
-    momentum_1m: Optional[float] = None
-    momentum_3m: Optional[float] = None
-    momentum_6m: Optional[float] = None
-    momentum_12_1m: Optional[float] = None       # 12m ex last month (avoids reversal)
-    momentum_score: Optional[float] = None
+    momentum_1m: float | None = None
+    momentum_3m: float | None = None
+    momentum_6m: float | None = None
+    momentum_12_1m: float | None = None       # 12m ex last month (avoids reversal)
+    momentum_score: float | None = None
 
     # ── Factor 5: Analyst Sentiment ───────────────────────────────────────
     # (Consensus rating, target price upside, analyst coverage depth)
-    analyst_rating_mean: Optional[float] = None  # 1=Strong Buy … 5=Strong Sell
-    analyst_buy_pct: Optional[float] = None       # % analysts with Buy/Strong Buy
-    analyst_target_upside: Optional[float] = None # (target − price) / price
-    num_analysts: Optional[int] = None
-    analyst_score: Optional[float] = None
+    analyst_rating_mean: float | None = None  # 1=Strong Buy … 5=Strong Sell
+    analyst_buy_pct: float | None = None       # % analysts with Buy/Strong Buy
+    analyst_target_upside: float | None = None # (target − price) / price
+    num_analysts: int | None = None
+    analyst_score: float | None = None
 
     # ── Composite ─────────────────────────────────────────────────────────
-    composite_score: Optional[float] = None
-    composite_rank: Optional[int] = None         # 1 = highest composite score
+    composite_score: float | None = None
+    composite_rank: int | None = None         # 1 = highest composite score
 
 
 # ---------------------------------------------------------------------------
@@ -125,7 +123,7 @@ class PortfolioHolding(BaseModel):
     target_weight: float = Field(
         description="Target portfolio weight as a decimal (0.08 = 8%)"
     )
-    agent_suggested_weight: Optional[float] = Field(
+    agent_suggested_weight: float | None = Field(
         default=None,
         description=(
             "Weight suggested by the per-ticker Portfolio Manager's position_sizing "
@@ -135,29 +133,29 @@ class PortfolioHolding(BaseModel):
     conviction: ConvictionLevel = Field(
         description="Conviction: High / Medium / Low"
     )
-    momentum_score: Optional[float] = Field(
+    momentum_score: float | None = Field(
         default=None, description="Normalised momentum z-score from screener"
     )
-    quality_score: Optional[float] = Field(
+    quality_score: float | None = Field(
         default=None, description="Normalised quality z-score from screener"
     )
-    composite_score: Optional[float] = Field(
+    composite_score: float | None = Field(
         default=None, description="Weighted composite of momentum + quality z-scores"
     )
-    price_target: Optional[float] = Field(
+    price_target: float | None = Field(
         default=None, description="Price target from the per-ticker Portfolio Manager"
     )
-    time_horizon: Optional[str] = Field(
+    time_horizon: str | None = Field(
         default=None, description="Recommended holding period, e.g. '3-6 months'"
     )
     investment_thesis: str = Field(
         description="2-3 sentence investment rationale for this position"
     )
-    overweight_reason: Optional[str] = Field(
+    overweight_reason: str | None = Field(
         default=None,
         description="Why overweighted vs a neutral benchmark, if applicable",
     )
-    underweight_reason: Optional[str] = Field(
+    underweight_reason: str | None = Field(
         default=None,
         description="Why underweighted vs a neutral benchmark, if applicable",
     )
@@ -174,7 +172,7 @@ class PortfolioView(BaseModel):
     construction_date: str = Field(
         description="ISO date the portfolio was constructed (YYYY-MM-DD)"
     )
-    holdings: List[PortfolioHolding] = Field(
+    holdings: list[PortfolioHolding] = Field(
         description="Target holdings, sorted by weight descending"
     )
     cash_weight: float = Field(
@@ -201,7 +199,7 @@ class PortfolioView(BaseModel):
     )
 
     # Sector exposure summary {sector: weight}
-    sector_weights: Optional[Dict[str, float]] = Field(
+    sector_weights: dict[str, float] | None = Field(
         default=None,
         description="Aggregated target weights by GICS sector",
     )
@@ -244,13 +242,13 @@ class RebalanceRecommendation(BaseModel):
     rebalance_type: str = Field(
         description="monthly_scheduled | drift_triggered | initial_construction"
     )
-    trades: List[RebalanceTrade] = Field(
+    trades: list[RebalanceTrade] = Field(
         description="Recommended trades, sorted by |weight_delta| descending"
     )
-    new_positions: List[str] = Field(
+    new_positions: list[str] = Field(
         description="Tickers entering the portfolio for the first time"
     )
-    exited_positions: List[str] = Field(
+    exited_positions: list[str] = Field(
         description="Tickers being fully sold out of the portfolio"
     )
     portfolio_turnover_pct: float = Field(

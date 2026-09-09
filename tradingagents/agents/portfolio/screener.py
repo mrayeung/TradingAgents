@@ -53,7 +53,6 @@ import math
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 import yfinance as yf
@@ -76,7 +75,7 @@ _SP500_SEED = [
     "NEE", "CAT", "AMGN", "INTU", "SPGI",
 ]
 
-_SECTOR_TICKERS: Dict[str, List[str]] = {
+_SECTOR_TICKERS: dict[str, list[str]] = {
     "Technology":     ["AAPL", "MSFT", "NVDA", "AVGO", "AMD", "ORCL", "CRM", "ADBE",
                        "TXN", "QCOM", "IBM", "INTU", "NOW", "SNOW", "AMAT", "KLAC",
                        "MU", "LRCX", "CDNS", "SNPS"],
@@ -150,7 +149,7 @@ class MomentumQualityScreener:
     # Universe helpers
     # ──────────────────────────────────────────────────────────────────────
 
-    def get_universe(self) -> List[str]:
+    def get_universe(self) -> list[str]:
         """Return tickers for the configured universe type."""
         universe_type = self.pcfg.get("universe", "sp500")
         if universe_type == "sp500":
@@ -165,7 +164,7 @@ class MomentumQualityScreener:
             return self.pcfg.get("custom_tickers", _SP500_SEED)
         return _SP500_SEED
 
-    def _get_sp500_tickers(self) -> List[str]:
+    def _get_sp500_tickers(self) -> list[str]:
         try:
             tables = pd.read_html(
                 "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
@@ -294,7 +293,7 @@ class MomentumQualityScreener:
             r.price_to_book  = info.get("priceToBook")
 
             # ── Factor 4: Momentum ─────────────────────────────────────
-            def _ret(lookback: int, skip: int = 0) -> Optional[float]:
+            def _ret(lookback: int, skip: int = 0) -> float | None:
                 end_i   = len(close) - 1 - skip
                 start_i = end_i - lookback
                 if start_i < 0 or close.iloc[start_i] == 0:
@@ -350,7 +349,7 @@ class MomentumQualityScreener:
     # Factor scoring
     # ──────────────────────────────────────────────────────────────────────
 
-    def _score_factors(self, results: List[ScreenerResult]) -> List[ScreenerResult]:
+    def _score_factors(self, results: list[ScreenerResult]) -> list[ScreenerResult]:
         """Compute factor z-scores and composite score for all passing results."""
         if not results:
             return results
@@ -443,9 +442,9 @@ class MomentumQualityScreener:
     def screen(
         self,
         trade_date: str,
-        top_n: Optional[int] = None,
-        tickers: Optional[List[str]] = None,
-    ) -> Tuple[List[ScreenerResult], List[ScreenerResult]]:
+        top_n: int | None = None,
+        tickers: list[str] | None = None,
+    ) -> tuple[list[ScreenerResult], list[ScreenerResult]]:
         """Run the full two-phase institutional screen.
 
         Parameters
@@ -477,7 +476,7 @@ class MomentumQualityScreener:
         )
 
         # ── Phase A: parallel data fetch ───────────────────────────────
-        all_results: List[ScreenerResult] = []
+        all_results: list[ScreenerResult] = []
         with ThreadPoolExecutor(max_workers=self.max_workers) as pool:
             futures = {
                 pool.submit(self._fetch_single, tkr, trade_date): tkr

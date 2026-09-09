@@ -4,7 +4,6 @@ import time
 from collections import deque
 from functools import wraps
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich import box
@@ -1325,12 +1324,12 @@ def analyze(
 
 @app.command()
 def portfolio(
-    tickers: Optional[str] = typer.Option(
+    tickers: str | None = typer.Option(
         None,
         "--tickers", "-t",
         help='Comma-separated ticker list.  Example: --tickers "AAPL,MSFT,NVDA"',
     ),
-    tickers_file: Optional[Path] = typer.Option(
+    tickers_file: Path | None = typer.Option(  # noqa: B008
         None,
         "--tickers-file", "-f",
         help=(
@@ -1341,22 +1340,22 @@ def portfolio(
         exists=True,
         readable=True,
     ),
-    date: Optional[str] = typer.Option(
+    date: str | None = typer.Option(
         None,
         "--date", "-d",
         help="Analysis date YYYY-MM-DD.  Defaults to today.",
     ),
-    universe: Optional[str] = typer.Option(
+    universe: str | None = typer.Option(
         None,
         "--universe", "-u",
         help='Universe to screen when no tickers are supplied: "sp500", "sector", or "list".',
     ),
-    sector: Optional[str] = typer.Option(
+    sector: str | None = typer.Option(
         None,
         "--sector",
         help='GICS sector name when --universe sector is used.  Example: "Technology".',
     ),
-    holdings: Optional[str] = typer.Option(
+    holdings: str | None = typer.Option(
         None,
         "--holdings",
         help=(
@@ -1364,7 +1363,7 @@ def portfolio(
             'Example: --holdings "AAPL=0.12,MSFT=0.08,NVDA=0.06"'
         ),
     ),
-    holdings_file: Optional[Path] = typer.Option(
+    holdings_file: Path | None = typer.Option(  # noqa: B008
         None,
         "--holdings-file",
         help=(
@@ -1411,7 +1410,7 @@ def portfolio(
     import json as _json
 
     # ---- Resolve ticker list ----
-    ticker_list: Optional[list] = None
+    ticker_list: list | None = None
 
     if tickers:
         ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
@@ -1433,7 +1432,7 @@ def portfolio(
                 ]
         except Exception as e:
             console.print(f"[bold red]Error reading tickers file:[/bold red] {e}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
 
     if ticker_list is not None and len(ticker_list) == 0:
         console.print("[bold red]No tickers found — check your input.[/bold red]")
@@ -1446,7 +1445,7 @@ def portfolio(
         )
 
     # ---- Resolve current holdings ----
-    current_holdings: Optional[dict] = None
+    current_holdings: dict | None = None
 
     if holdings_file:
         try:
@@ -1454,7 +1453,7 @@ def portfolio(
             current_holdings = {k.upper(): float(v) for k, v in current_holdings.items()}
         except Exception as e:
             console.print(f"[bold red]Error reading holdings file:[/bold red] {e}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
 
     elif holdings:
         try:
@@ -1467,7 +1466,7 @@ def portfolio(
                 current_holdings[tkr.strip().upper()] = float(wt.strip())
         except Exception as e:
             console.print(f"[bold red]Error parsing --holdings:[/bold red] {e}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
 
     if current_holdings:
         console.print(

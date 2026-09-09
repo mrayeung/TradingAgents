@@ -9,37 +9,36 @@ Run from the repo root:
     python scripts/test_portfolio.py
 """
 
-import sys
 import os
+import sys
+import traceback
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import json
 import tempfile
 from datetime import date
 
+from tradingagents.agents.portfolio.construction import (
+    _apply_constraints,
+    _parse_final_decision,
+    _parse_position_sizing,
+)
+from tradingagents.agents.portfolio.rebalancing import _compute_trades
+
 # ---- Imports under test ----
 from tradingagents.agents.portfolio.schemas import (
-    ScreenerResult,
+    ConvictionLevel,
     PortfolioHolding,
     PortfolioView,
-    RebalanceTrade,
-    RebalanceRecommendation,
     RebalanceAction,
-    ConvictionLevel,
+    RebalanceRecommendation,
+    RebalanceTrade,
+    ScreenerResult,
     render_portfolio_view,
     render_rebalance_recommendation,
 )
-from tradingagents.agents.portfolio.screener import MomentumQualityScreener
-from tradingagents.agents.portfolio.construction import (
-    _parse_final_decision,
-    _parse_trader_sizing,
-    _parse_position_sizing,
-    _apply_constraints,
-)
-from tradingagents.agents.portfolio.rebalancing import _compute_trades
-from tradingagents.portfolio.output import generate_outputs
 from tradingagents.default_config import DEFAULT_CONFIG
-
+from tradingagents.portfolio.output import generate_outputs
 
 TRADE_DATE = str(date.today())
 
@@ -143,7 +142,7 @@ def test_decision_parser():
 
     fields = _parse_final_decision(mock_decision)
     assert fields["rating"] == "Buy", f"Rating parse failed: {fields['rating']}"
-    assert fields["price_target"] == 230.0, f"Price target parse failed"
+    assert fields["price_target"] == 230.0, "Price target parse failed"
     assert fields["time_horizon"] == "6-12 months"
     print("  ✓ PortfolioDecision markdown parsing works")
 
@@ -166,11 +165,11 @@ def test_rebalance_computation():
     # MSFT: exactly on target → HOLD
     assert trade_map["MSFT"].action == RebalanceAction.HOLD, f"MSFT should HOLD, got {trade_map['MSFT'].action}"
     # NVDA: new position → BUY
-    assert trade_map["NVDA"].action == RebalanceAction.BUY, f"NVDA should BUY"
+    assert trade_map["NVDA"].action == RebalanceAction.BUY, "NVDA should BUY"
     # GOOGL: new position → BUY
-    assert trade_map["GOOGL"].action == RebalanceAction.BUY, f"GOOGL should BUY"
+    assert trade_map["GOOGL"].action == RebalanceAction.BUY, "GOOGL should BUY"
     # AMZN: in current but not in target → SELL
-    assert trade_map["AMZN"].action == RebalanceAction.SELL, f"AMZN should SELL"
+    assert trade_map["AMZN"].action == RebalanceAction.SELL, "AMZN should SELL"
 
     print("  ✓ Rebalance trade computation correct")
 
@@ -470,7 +469,7 @@ if __name__ == "__main__":
             passed += 1
         except Exception as e:
             print(f"  ✗ FAILED: {e}")
-            import traceback; traceback.print_exc()
+            traceback.print_exc()
             failed += 1
 
     print("\n" + "=" * 60)

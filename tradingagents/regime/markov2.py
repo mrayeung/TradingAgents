@@ -32,7 +32,6 @@ Research tooling only. Not investment advice.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional, Sequence
 
 import numpy as np
 
@@ -244,7 +243,7 @@ def _position(signal: float, cfg: MarkovConfig) -> float:
 
 
 # ── Public: analyse the latest bar ────────────────────────────────────────────
-def analyze(close, cfg: Optional[MarkovConfig] = None, high=None, low=None) -> MarkovResult:
+def analyze(close, cfg: MarkovConfig | None = None, high=None, low=None) -> MarkovResult:
     """Run the full Markov 2.0 pipeline over `close` and report the latest bar.
 
     Mirrors the Pine `barstate.islast` block: build both matrices, verify labels,
@@ -344,7 +343,7 @@ def analyze(close, cfg: Optional[MarkovConfig] = None, high=None, low=None) -> M
 # ── Public: walk-forward backtest ("proof, not promises") ─────────────────────
 def walk_forward(
     close,
-    cfg: Optional[MarkovConfig] = None,
+    cfg: MarkovConfig | None = None,
     high=None,
     low=None,
     min_history: int = 252,

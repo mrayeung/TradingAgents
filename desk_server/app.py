@@ -442,8 +442,9 @@ async def portfolio_signals() -> dict:
     rating, conviction score, expected_return, win_prob, per-analyst verdicts,
     report age_days, and a stale flag (age > 14 days).
     """
-    from pathlib import Path
     from dataclasses import asdict
+    from pathlib import Path
+
     from tradingagents.default_config import DEFAULT_CONFIG
     from tradingagents.portfolio.signals import aggregate_signals
 
@@ -468,8 +469,9 @@ async def portfolio_signals() -> dict:
 @app.get("/portfolio/signals/flat")
 async def portfolio_signals_flat() -> dict:
     """Flat analyst signals for OpenBB table widgets — analyst_verdicts inlined."""
-    from pathlib import Path
     from dataclasses import asdict
+    from pathlib import Path
+
     from tradingagents.default_config import DEFAULT_CONFIG
     from tradingagents.portfolio.signals import aggregate_signals
 
@@ -504,13 +506,15 @@ async def portfolio_construct(request: Request) -> dict:
       min_position:  float       — per-ticker floor (default 0.02)
       lookback_days: int         — history for covariance (default 90)
     """
-    import yfinance as yf
-    import pandas as pd
     from pathlib import Path
+
+    import pandas as pd
+    import yfinance as yf
+
     from tradingagents.default_config import DEFAULT_CONFIG
-    from tradingagents.portfolio.signals import aggregate_signals
     from tradingagents.portfolio.black_litterman import compute_bl_returns
     from tradingagents.portfolio.optimizer import optimize_portfolio
+    from tradingagents.portfolio.signals import aggregate_signals
 
     body = await request.json()
     tickers: list[str] = [t.upper() for t in (body.get("tickers") or [])]
@@ -607,13 +611,15 @@ async def portfolio_weights(
       min_position:  per-ticker weight floor (default 0.02)
       lookback_days: price history for covariance (default 90)
     """
-    import yfinance as yf
-    import pandas as pd
     from pathlib import Path
+
+    import pandas as pd
+    import yfinance as yf
+
     from tradingagents.default_config import DEFAULT_CONFIG
-    from tradingagents.portfolio.signals import aggregate_signals
     from tradingagents.portfolio.black_litterman import compute_bl_returns
     from tradingagents.portfolio.optimizer import optimize_portfolio
+    from tradingagents.portfolio.signals import aggregate_signals
 
     ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
     if not ticker_list:
@@ -710,9 +716,10 @@ async def portfolio_sizing(
       days:    correlation look-back days  (default 90)
     """
     from pathlib import Path
+
     from tradingagents.default_config import DEFAULT_CONFIG
-    from tradingagents.portfolio.signals import aggregate_signals
     from tradingagents.portfolio.correlation import compute_correlation_matrix
+    from tradingagents.portfolio.signals import aggregate_signals
     from tradingagents.portfolio.sizing import compute_kelly_sizes
 
     ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
@@ -723,7 +730,7 @@ async def portfolio_sizing(
     if len(weight_vals) != len(ticker_list):
         # Fall back to equal weights
         weight_vals = [1.0 / len(ticker_list)] * len(ticker_list)
-    weight_map = dict(zip(ticker_list, weight_vals))
+    weight_map = dict(zip(ticker_list, weight_vals, strict=True))
 
     results_dir = Path(DEFAULT_CONFIG["results_dir"])
 
@@ -761,7 +768,7 @@ async def portfolio_benchmark(
     weight_vals = [float(w.strip()) for w in weights.split(",") if w.strip()]
     if len(weight_vals) != len(ticker_list):
         weight_vals = [1.0 / len(ticker_list)] * len(ticker_list)
-    weight_map = dict(zip(ticker_list, weight_vals))
+    weight_map = dict(zip(ticker_list, weight_vals, strict=True))
 
     def _run():
         return compute_benchmark_comparison(ticker_list, weight_map, days=days)
@@ -791,7 +798,7 @@ async def portfolio_benchmark_summary(
     weight_vals = [float(w.strip()) for w in weights.split(",") if w.strip()]
     if len(weight_vals) != len(ticker_list):
         weight_vals = [1.0 / len(ticker_list)] * len(ticker_list)
-    weight_map = dict(zip(ticker_list, weight_vals))
+    weight_map = dict(zip(ticker_list, weight_vals, strict=True))
 
     def _run():
         result = compute_benchmark_comparison(ticker_list, weight_map, days=days)
@@ -836,8 +843,8 @@ async def portfolio_rebalance_get(
     if len(target_vals) != len(ticker_list):
         raise HTTPException(status_code=400, detail="target_weights length must match tickers")
 
-    current = dict(zip(ticker_list, current_vals))
-    target  = dict(zip(ticker_list, target_vals))
+    current = dict(zip(ticker_list, current_vals, strict=True))
+    target  = dict(zip(ticker_list, target_vals, strict=True))
 
     all_tickers = sorted(set(current) | set(target))
     trades = []
@@ -905,9 +912,12 @@ async def portfolio_rebalance(request: Request) -> dict:
 # ── Options Action ─────────────────────────────────────────────────────────────
 
 def _strike_step(price: float) -> float:
-    if price < 25:   return 1.0
-    if price < 100:  return 2.5
-    if price < 500:  return 5.0
+    if price < 25:
+        return 1.0
+    if price < 100:
+        return 2.5
+    if price < 500:
+        return 5.0
     return 10.0
 
 
@@ -1139,8 +1149,9 @@ def _generate_trade_ideas(
 
 def _options_for_ticker(ticker: str) -> dict:
     import math
-    from datetime import datetime, date as dt_date
-    import numpy as np
+    from datetime import date as dt_date, datetime
+
+    import pandas as pd
     import yfinance as yf
 
     t = yf.Ticker(ticker.upper())
@@ -1222,8 +1233,8 @@ def _options_for_ticker(ticker: str) -> dict:
 
             # Compact chain (top 10 strikes around ATM for each side)
             atm_strike = float(calls_df.loc[atm_idx, "strike"])
-            def _near_atm(df: "pd.DataFrame") -> list[dict]:
-                near = df[(df["strike"] >= atm_strike * 0.85) & (df["strike"] <= atm_strike * 1.15)]
+            def _near_atm(df: pd.DataFrame, atm: float = atm_strike) -> list[dict]:
+                near = df[(df["strike"] >= atm * 0.85) & (df["strike"] <= atm * 1.15)]
                 return [
                     {
                         "strike": float(r["strike"]),
@@ -1305,10 +1316,10 @@ async def portfolio_scorecard(refresh: bool = False) -> dict:
         return _scorecard_cache["data"]
 
     def _build() -> dict:
-        import math
         import json as _json
-        import urllib.request
+        import math
         import urllib.parse
+        import urllib.request
 
         import numpy as np
         import pandas as pd
@@ -1329,7 +1340,6 @@ async def portfolio_scorecard(refresh: bool = False) -> dict:
         def fred_public_csv(sid: str, lim: int = 520) -> pd.Series:
             """Fetch a FRED series via the public CSV endpoint — NO API key required."""
             try:
-                import io as _io
                 url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={sid}"
                 req = urllib.request.Request(
                     url,
@@ -1342,10 +1352,8 @@ async def portfolio_scorecard(refresh: bool = False) -> dict:
                 for line in rows:
                     parts = line.split(",")
                     if len(parts) >= 2 and parts[1].strip() not in (".", ""):
-                        try:
+                        with contextlib.suppress(ValueError, TypeError):
                             data[pd.Timestamp(parts[0].strip())] = float(parts[1].strip())
-                        except (ValueError, TypeError):
-                            pass
                 s = pd.Series(data).sort_index()
                 return s.tail(lim) if len(s) > lim else s
             except Exception:
@@ -1402,13 +1410,19 @@ async def portfolio_scorecard(refresh: bool = False) -> dict:
 
         def _classify(z: float, higher_is_overvalued: bool, mu, sigma):
             if higher_is_overvalued:
-                if z > 2.0:   return round(z, 2), "OVERVALUED",  f"★ EXTREME — {z:.1f}σ above avg"
-                if z > 1.0:   return round(z, 2), "OVERVALUED",  f"{z:.1f}σ above 10yr avg"
-                if z < -1.0:  return round(z, 2), "UNDERVALUED", f"{abs(z):.1f}σ below 10yr avg"
+                if z > 2.0:
+                    return round(z, 2), "OVERVALUED", f"★ EXTREME — {z:.1f}σ above avg"
+                if z > 1.0:
+                    return round(z, 2), "OVERVALUED", f"{z:.1f}σ above 10yr avg"
+                if z < -1.0:
+                    return round(z, 2), "UNDERVALUED", f"{abs(z):.1f}σ below 10yr avg"
             else:
-                if z < -2.0:  return round(z, 2), "OVERVALUED",  f"★ EXTREME — {abs(z):.1f}σ below avg"
-                if z < -1.0:  return round(z, 2), "OVERVALUED",  f"{abs(z):.1f}σ below avg (stretched)"
-                if z > 1.0:   return round(z, 2), "UNDERVALUED", f"{z:.1f}σ above avg (cheap)"
+                if z < -2.0:
+                    return round(z, 2), "OVERVALUED", f"★ EXTREME — {abs(z):.1f}σ below avg"
+                if z < -1.0:
+                    return round(z, 2), "OVERVALUED", f"{abs(z):.1f}σ below avg (stretched)"
+                if z > 1.0:
+                    return round(z, 2), "UNDERVALUED", f"{z:.1f}σ above avg (cheap)"
             return round(z, 2), "NORMAL", ""
 
         def row(name, category, value, unit, z, status, notes, avg=None, std=None, source=""):
@@ -1964,7 +1978,6 @@ async def macro_data() -> dict:
         import urllib.parse
         import urllib.request
 
-        import numpy as np
         import pandas as pd
         import yfinance as yf
 
@@ -2022,7 +2035,7 @@ async def macro_data() -> dict:
         tnx  = get_col(raw_d, "^TNX")
         fvx  = get_col(raw_d, "^FVX")
         vix_d = get_col(raw_d, "^VIX")
-        vxv_d = get_col(raw_d, "^VXV")
+        _vxv_d = get_col(raw_d, "^VXV")
         spx  = get_col(raw_d, "^GSPC")
         spy  = get_col(raw_d, "SPY")
         rsp  = get_col(raw_d, "RSP")
@@ -2563,10 +2576,8 @@ async def get_dashboard(refresh: bool = False) -> dict:
                 exdiv_str: str | None = None
                 exd = info.get("exDividendDate")
                 if exd:
-                    try:
+                    with contextlib.suppress(Exception):
                         exdiv_str = pd.Timestamp(exd, unit="s").strftime("%Y-%m-%d")
-                    except Exception:
-                        pass
 
                 if earn_str:
                     cal_add(earn_str, f"{sym} Earnings", "EARNINGS", "HIGH", [sym],
