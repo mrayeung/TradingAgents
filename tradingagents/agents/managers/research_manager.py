@@ -19,13 +19,20 @@ def create_research_manager(llm):
     def research_manager_node(state) -> dict:
         instrument_context = get_instrument_context_from_state(state)
         history = state["investment_debate_state"].get("history", "")
+        macro_report = state.get("macro_report", "")
 
         investment_debate_state = state["investment_debate_state"]
+
+        macro_framing = (
+            f"\n**Macro framing (Stage-1, rates/USD/credit/EM, risk-off):**\n{macro_report}\n"
+            if macro_report
+            else ""
+        )
 
         prompt = f"""As the Research Manager and debate facilitator, your role is to critically evaluate this round of debate and deliver a clear, actionable investment plan for the trader.
 
 {instrument_context}
-
+{macro_framing}
 ---
 
 **Rating Scale** (use exactly one):

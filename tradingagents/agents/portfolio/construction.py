@@ -21,11 +21,12 @@ Flow
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import re
 from datetime import date
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from tradingagents.agents.portfolio.schemas import (
     ConvictionLevel,
@@ -52,7 +53,7 @@ _SECTION_MARKERS = [
 ]
 
 
-def _parse_position_sizing(sizing_text: Optional[str]) -> Optional[float]:
+def _parse_position_sizing(sizing_text: str | None) -> float | None:
     """Extract a decimal weight from a free-text position sizing string.
 
     Examples
@@ -71,13 +72,13 @@ def _parse_position_sizing(sizing_text: Optional[str]) -> Optional[float]:
     return sum(values) / len(values)  # midpoint for ranges
 
 
-def _parse_final_decision(decision_text: str) -> Dict[str, Any]:
+def _parse_final_decision(decision_text: str) -> dict[str, Any]:
     """Extract structured fields from a rendered PortfolioDecision markdown string.
 
     Returns a dict with keys: rating, price_target, time_horizon, executive_summary,
     investment_thesis (all may be None if not found).
     """
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "rating": None,
         "price_target": None,
         "time_horizon": None,
@@ -89,12 +90,10 @@ def _parse_final_decision(decision_text: str) -> Dict[str, Any]:
         if line.startswith("**Rating**:"):
             result["rating"] = line.split(":", 1)[-1].strip()
         elif line.startswith("**Price Target**:"):
-            try:
+            with contextlib.suppress(ValueError):
                 result["price_target"] = float(
                     line.split(":", 1)[-1].strip().replace(",", "")
                 )
-            except ValueError:
-                pass
         elif line.startswith("**Time Horizon**:"):
             result["time_horizon"] = line.split(":", 1)[-1].strip()
         elif line.startswith("**Executive Summary**:"):
@@ -104,7 +103,7 @@ def _parse_final_decision(decision_text: str) -> Dict[str, Any]:
     return result
 
 
-def _parse_trader_sizing(trader_plan_text: str) -> Optional[float]:
+def _parse_trader_sizing(trader_plan_text: str) -> float | None:
     """Extract position sizing from a rendered TraderProposal markdown string."""
     for line in trader_plan_text.splitlines():
         if line.strip().startswith("**Position Sizing**:"):
@@ -114,7 +113,7 @@ def _parse_trader_sizing(trader_plan_text: str) -> Optional[float]:
 
 
 def _build_prompt(
-    candidates: List[Tuple[str, Dict[str, Any], Optional[ScreenerResult]]],
+    candidates: list[tuple[str, dict[str, Any], ScreenerResult | None]],
     config: dict,
 ) -> str:
     """Build the LLM prompt for portfolio weight allocation.
@@ -201,7 +200,7 @@ def _build_prompt(
 
 def _parse_llm_response(
     response_text: str,
-) -> Tuple[List[Dict], str, str, str, str]:
+) -> tuple[list[dict], str, str, str, str]:
     """Parse the LLM's structured response into JSON holdings + narrative sections."""
     # Extract JSON block
     json_match = re.search(r"```(?:json)?\s*(\[.*?\])\s*```", response_text, re.DOTALL)
@@ -237,11 +236,11 @@ def _parse_llm_response(
 
 
 def _apply_constraints(
-    raw_holdings: List[Dict],
-    screener_map: Dict[str, ScreenerResult],
-    decision_map: Dict[str, Dict],
+    raw_holdings: list[dict],
+    screener_map: dict[str, ScreenerResult],
+    decision_map: dict[str, dict],
     config: dict,
-) -> List[PortfolioHolding]:
+) -> list[PortfolioHolding]:
     """Normalise weights and enforce min/max/max_positions constraints."""
     min_w = config.get("min_weight", 0.02)
     max_w = config.get("max_weight", 0.15)
@@ -313,8 +312,8 @@ def create_portfolio_construction_agent(llm):
     """
 
     def build_portfolio(
-        ticker_results: List[Tuple[str, str, str]],
-        screener_results: List[ScreenerResult],
+        ticker_results: list[tuple[str, str, str]],
+        screener_results: list[ScreenerResult],
         config: dict,
     ) -> PortfolioView:
         """Construct a target portfolio from individual ticker analyses.
@@ -339,7 +338,7 @@ def create_portfolio_construction_agent(llm):
         screener_map = {sr.ticker: sr for sr in screener_results}
 
         # ---- Build per-ticker decision dicts ----
-        decision_map: Dict[str, Dict] = {}
+        decision_map: dict[str, dict] = {}
         for ticker, final_decision, trader_plan in ticker_results:
             fields = _parse_final_decision(final_decision)
             fields["agent_suggested_weight"] = _parse_trader_sizing(trader_plan)
@@ -419,7 +418,7 @@ def create_portfolio_construction_agent(llm):
         cash_weight = round(max(0.0, 1.0 - invested), 4)
 
         # ---- Sector weights ----
-        sector_weights: Dict[str, float] = {}
+        sector_weights: dict[str, float] = {}
         for h in holdings:
             sr = screener_map.get(h.ticker)
             sector = (sr.sector if sr else None) or "Unknown"

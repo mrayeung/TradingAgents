@@ -22,7 +22,7 @@ import json
 import os
 import webbrowser
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # CSS — Robinhood-inspired dark theme
@@ -1209,7 +1209,7 @@ class PortfolioDashboard:
         self.output_dir  = output_dir
         self.trade_date  = trade_date
         self.path        = os.path.join(output_dir, f"dashboard_{trade_date.replace('-','')}.html")
-        self._data: Dict[str, Any] = {
+        self._data: dict[str, Any] = {
             "meta": {
                 "trade_date":       trade_date,
                 "generated_at":     datetime.now().isoformat(timespec="seconds"),
@@ -1245,8 +1245,8 @@ class PortfolioDashboard:
 
     def update_screener(
         self,
-        passed:   List[Any],   # List[ScreenerResult]
-        filtered: List[Any],   # List[ScreenerResult]
+        passed:   list[Any],   # List[ScreenerResult]
+        filtered: list[Any],   # List[ScreenerResult]
     ) -> None:
         """Populate the screener tab and switch stage to screener_done."""
         self._data["screener"] = {
@@ -1315,7 +1315,7 @@ class PortfolioDashboard:
         }
         self._set_stage("portfolio")
 
-    def update_correlation(self, corr_data: Optional[dict]) -> None:
+    def update_correlation(self, corr_data: dict | None) -> None:
         """Embed a precomputed correlation matrix (from correlation.py)."""
         if corr_data:
             self._data["correlation"] = corr_data
@@ -1357,7 +1357,7 @@ class PortfolioDashboard:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _sr_dict(self, r: Any) -> Dict[str, Any]:
+    def _sr_dict(self, r: Any) -> dict[str, Any]:
         """Convert a ScreenerResult to a plain dict for JSON embedding."""
         return {
             "ticker":              r.ticker,

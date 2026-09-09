@@ -39,7 +39,7 @@ def _fetch_rss(url: str) -> list:
     except ImportError:
         raise GoogleNewsUnavailableError(
             "feedparser not installed — run: pip install feedparser"
-        )
+        ) from None
     try:
         req = urllib.request.Request(url, headers=_HEADERS)
         with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:

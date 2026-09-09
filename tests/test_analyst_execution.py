@@ -18,6 +18,7 @@ class AnalystExecutionPlanTests(unittest.TestCase):
         self.assertEqual(plan.specs[0].clear_node, "Msg Clear News")
 
     def test_rejects_unknown_analyst_keys(self):
+        # "macro" is a Stage-1 node, not a selected_analysts key.
         with self.assertRaises(ValueError):
             build_analyst_execution_plan(["market", "macro"])
 

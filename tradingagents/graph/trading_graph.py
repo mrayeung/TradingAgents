@@ -27,11 +27,11 @@ from tradingagents.agents.utils.agent_utils import (
     get_verified_market_snapshot,
     resolve_instrument_identity,
 )
+from tradingagents.agents.utils.memory import TradingMemoryLog
 from tradingagents.agents.utils.valuation_tools import (
     get_peer_comparables,
     get_valuation_metrics,
 )
-from tradingagents.agents.utils.memory import TradingMemoryLog
 from tradingagents.dataflows.config import set_config
 from tradingagents.dataflows.utils import safe_ticker_component
 from tradingagents.default_config import DEFAULT_CONFIG
@@ -245,14 +245,20 @@ class TradingAgentsGraph:
                     get_news,
                 ]
             ),
+            "macro": ToolNode(
+                [
+                    # Stage-1 Macro Analyst: FRED series, desk/macro context, Fed/recession odds
+                    get_macro_indicators,
+                    get_global_news,
+                    get_prediction_markets,
+                ]
+            ),
             "news": ToolNode(
                 [
-                    # News and insider information
+                    # Headlines only — company/global news plus insider tape
                     get_news,
                     get_global_news,
                     get_insider_transactions,
-                    get_macro_indicators,
-                    get_prediction_markets,
                 ]
             ),
             "fundamentals": ToolNode(
@@ -607,6 +613,7 @@ class TradingAgentsGraph:
             "market_report": final_state["market_report"],
             "sentiment_report": final_state["sentiment_report"],
             "news_report": final_state["news_report"],
+            "macro_report": final_state.get("macro_report", ""),
             "fundamentals_report": final_state["fundamentals_report"],
             "investment_debate_state": {
                 "bull_history": final_state["investment_debate_state"]["bull_history"],

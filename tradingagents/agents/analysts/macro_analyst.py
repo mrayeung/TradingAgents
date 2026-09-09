@@ -4,24 +4,40 @@ from tradingagents.agents.utils.agent_utils import (
     get_global_news,
     get_instrument_context_from_state,
     get_language_instruction,
-    get_news,
+    get_macro_indicators,
+    get_prediction_markets,
 )
 
 
-def create_news_analyst(llm):
-    def news_analyst_node(state):
+def create_macro_analyst(llm):
+    def macro_analyst_node(state):
         current_date = state["trade_date"]
-        asset_type = state.get("asset_type", "stock")
-        asset_label = "company" if asset_type == "stock" else "asset"
         instrument_context = get_instrument_context_from_state(state)
 
         tools = [
-            get_news,
+            get_macro_indicators,
             get_global_news,
+            get_prediction_markets,
         ]
 
         system_message = (
-            f"You are a news researcher tasked with analyzing recent company and global headlines over the past week. Stay headlines-only: cover {asset_label}-specific news and global print/tape reactions that matter for trading. Use the available tools: get_news(ticker, start_date, end_date) for {asset_label}-specific news by ticker symbol, and get_global_news(curr_date, look_back_days, limit) for broader headline flow and print reactions. Do not perform top-down macro analysis (rates, USD, credit, EM, FOMC/CPI calendar, or Fed/recession odds) — that is owned by the Macro Analyst. Provide specific, actionable insights with supporting evidence to help traders make informed decisions."
+            "You are the Macro Analyst. You own top-down macro framing for the desk "
+            "so the News Analyst can stay headlines-only. Write a Stage-1 gate that covers: "
+            "policy rates and the USD; credit conditions; EM risk; the macro calendar "
+            "(FOMC, CPI, and other high-impact prints); whether the tape favors cyclical or "
+            "defensive sectors; and an explicit **risk-off** flag (on/off) with the evidence "
+            "that justifies it. "
+            "Use get_macro_indicators(indicator, curr_date, look_back_days) to ground commentary "
+            "in FRED data (e.g. 'cpi', 'core_pce', 'unemployment', 'fed_funds_rate', "
+            "'10y_treasury', 'yield_curve', 'vix'). "
+            "Optionally use get_global_news(curr_date, look_back_days, limit) only for desk/macro "
+            "context (central-bank, rates, FX, credit, EM) — never for single-name or "
+            "ticker-specific headlines. "
+            "Optionally use get_prediction_markets(topic, limit) for Fed/recession event odds. "
+            "Do NOT analyze, fetch, or cite single-name headlines or ticker-specific news. "
+            "You may use the instrument's sector/industry from context only to judge cyclical "
+            "vs defensive implications. Provide specific, actionable insights with supporting "
+            "evidence to help traders make informed decisions."
             + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
             + get_language_instruction()
         )
@@ -59,7 +75,7 @@ def create_news_analyst(llm):
 
         return {
             "messages": [result],
-            "news_report": report,
+            "macro_report": report,
         }
 
-    return news_analyst_node
+    return macro_analyst_node

@@ -16,9 +16,7 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 from datetime import datetime, timedelta
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +36,7 @@ def _get_client():
     except ImportError:
         raise FinnhubUnavailableError(
             "finnhub-python not installed — run: pip install finnhub-python"
-        )
+        ) from None
     api_key = os.getenv("FINNHUB_API_KEY", "").strip()
     if not api_key:
         raise FinnhubUnavailableError(

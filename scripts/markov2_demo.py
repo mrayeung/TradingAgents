@@ -11,11 +11,11 @@ so you can see how the legacy matrix flatters. Research tooling, not advice.
 """
 
 import argparse
+
 import numpy as np
 
 from tradingagents.regime.markov2 import (
     MarkovConfig,
-    STATE_NAMES,
     analyze,
     walk_forward,
 )
@@ -57,7 +57,6 @@ def fmt_matrix(P, title):
     print("            BEAR   SIDE   BULL")
     for r, name in enumerate(["BEAR", "SIDE", "BULL"]):
         row = "  ".join(f"{P[r, c] * 100:4.0f}%" for c in range(3))
-        star = "  <- diagonal" if False else ""
         print(f"    {name}    {row}")
 
 

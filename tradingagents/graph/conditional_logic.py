@@ -41,6 +41,14 @@ class ConditionalLogic:
             return "tools_social"
         return "Msg Clear Sentiment"
 
+    def should_continue_macro(self, state: AgentState):
+        """Determine if macro analysis should continue."""
+        messages = state["messages"]
+        last_message = messages[-1]
+        if last_message.tool_calls:
+            return "tools_macro"
+        return "Msg Clear Macro"
+
     def should_continue_news(self, state: AgentState):
         """Determine if news analysis should continue."""
         messages = state["messages"]

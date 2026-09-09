@@ -65,6 +65,7 @@ class Propagator:
             "market_report": "",
             "market_technician_report": "",
             "quantitative_report": "",
+            "macro_report": "",
             "fundamentals_report": "",
             "sentiment_report": "",
             "news_report": "",
