@@ -161,16 +161,24 @@ class OpenRouterChatOpenAI(NormalizedChatOpenAI):
 
     OpenRouter can serve a model through multiple providers (Fireworks,
     Together AI, Baidu Qianfan, etc.) with different pricing, latency and
-    uptime. Use these env vars to control routing at request time — no code
-    change needed to switch providers:
+    uptime. Routing is model-scoped so different models can pin different
+    backends without interfering with each other.
+
+    Env var resolution order (most-specific wins):
+
+      TRADINGAGENTS_OPENROUTER_PROVIDER_<prefix>
+          Pin providers for all models whose id starts with <prefix>.
+          <prefix> is the model id up to the first slash, lowercased.
+          Example: TRADINGAGENTS_OPENROUTER_PROVIDER_deepseek=Baidu Qianfan,Fireworks
+          Matches: deepseek/deepseek-v4-pro-0813, deepseek/deepseek-v4.1-flash, …
+          Does NOT match: google/gemini-3-flash-preview, openai/gpt-5.4-mini
 
       TRADINGAGENTS_OPENROUTER_PROVIDER
-          Comma-separated preferred provider order. OpenRouter tries each in
-          sequence and falls back automatically.
-          Example: "Baidu Qianfan,Fireworks,Together AI"
+          Global fallback applied to all models with no prefix match.
+          Leave unset if you only want per-provider routing.
 
       TRADINGAGENTS_OPENROUTER_IGNORE
-          Comma-separated providers to skip entirely.
+          Comma-separated providers to skip for ALL models.
           Example: "Together AI"
 
     Run ``python scripts/or_providers.py`` to fetch the live provider table
@@ -180,7 +188,18 @@ class OpenRouterChatOpenAI(NormalizedChatOpenAI):
     def _get_request_payload(self, input_, *, stop=None, **kwargs):
         payload = super()._get_request_payload(input_, stop=stop, **kwargs)
 
-        order  = os.environ.get("TRADINGAGENTS_OPENROUTER_PROVIDER", "").strip()
+        # Model-scoped routing: TRADINGAGENTS_OPENROUTER_PROVIDER_<vendor-prefix>
+        # e.g. _deepseek matches deepseek/*, _google matches google/*, etc.
+        model_vendor = self.model_name.split("/")[0].lower() if "/" in self.model_name else ""
+        order = ""
+        if model_vendor:
+            order = os.environ.get(
+                f"TRADINGAGENTS_OPENROUTER_PROVIDER_{model_vendor}", ""
+            ).strip()
+        # Fall back to global if no vendor-specific pin
+        if not order:
+            order = os.environ.get("TRADINGAGENTS_OPENROUTER_PROVIDER", "").strip()
+
         ignore = os.environ.get("TRADINGAGENTS_OPENROUTER_IGNORE", "").strip()
 
         if order or ignore:
