@@ -12,7 +12,6 @@ from .base_client import BaseLLMClient, normalize_content
 from .capabilities import get_capabilities
 from .validators import validate_model
 
-
 class NormalizedChatOpenAI(ChatOpenAI):
     """ChatOpenAI with normalized content output and capability-aware binding.
 
@@ -50,7 +49,6 @@ class NormalizedChatOpenAI(ChatOpenAI):
             kwargs.setdefault("tool_choice", None)
         return super().with_structured_output(schema, method=method, **kwargs)
 
-
 class LocalCompatibleChatOpenAI(NormalizedChatOpenAI):
     """OpenAI-compatible client for arbitrary local servers (LM Studio, vLLM,
     llama.cpp via the generic ``openai_compatible`` provider).
@@ -67,7 +65,6 @@ class LocalCompatibleChatOpenAI(NormalizedChatOpenAI):
             kwargs.setdefault("tool_choice", None)
         return super().with_structured_output(schema, method=method, **kwargs)
 
-
 def _input_to_messages(input_: Any) -> list:
     """Normalise a langchain LLM input to a list of message objects.
 
@@ -83,7 +80,6 @@ def _input_to_messages(input_: Any) -> list:
     if hasattr(input_, "to_messages"):
         return input_.to_messages()
     return []
-
 
 class DeepSeekChatOpenAI(NormalizedChatOpenAI):
     """DeepSeek-specific overrides on top of the OpenAI-compatible client.
@@ -128,7 +124,6 @@ class DeepSeekChatOpenAI(NormalizedChatOpenAI):
                 generation.message.additional_kwargs["reasoning_content"] = reasoning
         return chat_result
 
-
 class MinimaxChatOpenAI(NormalizedChatOpenAI):
     """MiniMax-specific overrides on top of the OpenAI-compatible client.
 
@@ -161,12 +156,49 @@ class MinimaxChatOpenAI(NormalizedChatOpenAI):
             extra_body.setdefault("reasoning_split", True)
         return payload
 
+class OpenRouterChatOpenAI(NormalizedChatOpenAI):
+    """OpenRouter-specific overrides: backend provider routing via extra_body.
+
+    OpenRouter can serve a model through multiple providers (Fireworks,
+    Together AI, Baidu Qianfan, etc.) with different pricing, latency and
+    uptime. Use these env vars to control routing at request time — no code
+    change needed to switch providers:
+
+      TRADINGAGENTS_OPENROUTER_PROVIDER
+          Comma-separated preferred provider order. OpenRouter tries each in
+          sequence and falls back automatically.
+          Example: "Baidu Qianfan,Fireworks,Together AI"
+
+      TRADINGAGENTS_OPENROUTER_IGNORE
+          Comma-separated providers to skip entirely.
+          Example: "Together AI"
+
+    Run ``python scripts/or_providers.py`` to fetch the live provider table
+    for the configured model and get the recommended .env values.
+    """
+
+    def _get_request_payload(self, input_, *, stop=None, **kwargs):
+        payload = super()._get_request_payload(input_, stop=stop, **kwargs)
+
+        order  = os.environ.get("TRADINGAGENTS_OPENROUTER_PROVIDER", "").strip()
+        ignore = os.environ.get("TRADINGAGENTS_OPENROUTER_IGNORE", "").strip()
+
+        if order or ignore:
+            provider_cfg: dict = {"allow_fallbacks": True}
+            if order:
+                provider_cfg["order"] = [p.strip() for p in order.split(",")]
+            if ignore:
+                provider_cfg["ignore"] = [p.strip() for p in ignore.split(",")]
+            payload.setdefault("extra_body", {}).setdefault("provider", provider_cfg)
+
+        return payload
 
 # Kwargs forwarded from user config to ChatOpenAI
 _PASSTHROUGH_KWARGS = (
     "timeout", "max_retries", "reasoning_effort", "temperature", "max_tokens",
     "api_key", "callbacks", "http_client", "http_async_client",
     "max_tokens",   # caps output token reservation (critical for OpenRouter credit billing)
+    "streaming",    # explicit override: True re-enables streaming if needed
 )
 
 # OpenAI's ``reasoning_effort`` is only accepted by reasoning models — the GPT-5
@@ -175,11 +207,9 @@ _PASSTHROUGH_KWARGS = (
 # Drop the kwarg for those rather than crash the run.
 _OPENAI_REASONING_MODEL = re.compile(r"^(gpt-5|o[1-9])")
 
-
 def _supports_reasoning_effort(model: str) -> bool:
     """Whether the (native OpenAI) model accepts ``reasoning_effort``."""
     return bool(_OPENAI_REASONING_MODEL.match(model.lower().strip()))
-
 
 @dataclass(frozen=True)
 class ProviderSpec:
@@ -206,7 +236,6 @@ class ProviderSpec:
     require_base_url: bool = False            # error if no base_url is resolved (generic endpoint)
     use_responses_api: bool = False           # native OpenAI Responses API
 
-
 # Single source of truth for the OpenAI-compatible provider family. Dual-region
 # providers (qwen/glm/minimax) keep separate endpoints because international and
 # China accounts cannot share credentials (#758).
@@ -220,7 +249,7 @@ OPENAI_COMPATIBLE_PROVIDERS: dict[str, ProviderSpec] = {
     "glm-cn":     ProviderSpec(base_url="https://open.bigmodel.cn/api/paas/v4/"),
     "minimax":    ProviderSpec(base_url="https://api.minimax.io/v1", chat_class=MinimaxChatOpenAI),
     "minimax-cn": ProviderSpec(base_url="https://api.minimaxi.com/v1", chat_class=MinimaxChatOpenAI),
-    "openrouter": ProviderSpec(base_url="https://openrouter.ai/api/v1"),
+    "openrouter": ProviderSpec(base_url="https://openrouter.ai/api/v1", chat_class=OpenRouterChatOpenAI),
     "mistral":    ProviderSpec(base_url="https://api.mistral.ai/v1"),
     "kimi":       ProviderSpec(base_url="https://api.moonshot.ai/v1"),
     "groq":       ProviderSpec(base_url="https://api.groq.com/openai/v1"),
@@ -235,11 +264,9 @@ OPENAI_COMPATIBLE_PROVIDERS: dict[str, ProviderSpec] = {
     ),
 }
 
-
 def is_openai_compatible(provider: str) -> bool:
     """Whether ``provider`` is served by the OpenAI-compatible registry."""
     return provider.lower() in OPENAI_COMPATIBLE_PROVIDERS
-
 
 def _is_native_openai_base_url(base_url: str | None) -> bool:
     """True when ``base_url`` is unset or points at api.openai.com.
@@ -255,7 +282,6 @@ def _is_native_openai_base_url(base_url: str | None) -> bool:
         base_url = "https://" + base_url
     host = urlparse(base_url).hostname or ""
     return host == "api.openai.com" or host.endswith(".openai.com")
-
 
 class OpenAIClient(BaseLLMClient):
     """Client for OpenAI, Ollama, OpenRouter, and xAI providers.
@@ -324,13 +350,20 @@ class OpenAIClient(BaseLLMClient):
         elif self.base_url:
             llm_kwargs["base_url"] = self.base_url
 
-        # Forward user-provided kwargs
+        # Forward user-provided kwargs (streaming can be overridden here if needed)
         for key in _PASSTHROUGH_KWARGS:
             if key not in self.kwargs:
                 continue
             if key == "reasoning_effort" and not _supports_reasoning_effort(self.model):
                 continue
             llm_kwargs[key] = self.kwargs[key]
+
+        # Non-streaming default: analysis reports are delivered at 100% completion,
+        # so streaming adds HTTP overhead with no UX benefit. A single batch
+        # request/response is faster end-to-end for non-streaming use cases.
+        # Override by setting streaming=True in kwargs (or TRADINGAGENTS_STREAMING=true).
+        if os.environ.get("TRADINGAGENTS_STREAMING", "false").lower() != "true":
+            llm_kwargs.setdefault("streaming", False)
 
         # The subclass (provider quirks) comes from the registry spec.
         return chat_cls(**llm_kwargs)
