@@ -238,3 +238,4 @@ reports/
 # Local session / handoff docs (may contain sensitive context)
 COWORK_HANDOFF.md
 scratch_*.py
+tradingagents/data/13f/*.json

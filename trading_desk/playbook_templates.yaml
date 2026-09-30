@@ -1,0 +1,506 @@
+# Oasis Trading Desk — Strategy Template Library
+# Version: 0.1
+# These are TEMPLATES — users copy and customize them into their own playbook.
+# Each template ships with sensible defaults; every field is editable.
+#
+# Field guide:
+#   category:        Internal grouping (momentum | mean_reversion | options | event_driven | technical)
+#   style:           Display label
+#   difficulty:      beginner | intermediate | advanced
+#   holding_period:  Human-readable expected hold time
+#   regime_filter:   risk_on | risk_off | any
+#   min_rr:          Minimum reward-to-risk ratio required to take the trade
+#   max_size_pct:    Max % of account to risk on this setup (not position size — risk)
+#   paper_first:     true = platform warns user to paper trade before going live
+
+# ─────────────────────────────────────────────────────────────
+# CATEGORY 1: MOMENTUM
+# ─────────────────────────────────────────────────────────────
+
+- setup_name: "Morning Gap & Go"
+  category: momentum
+  style: "Momentum · Long"
+  difficulty: intermediate
+  holding_period: "Same day to 3 days"
+  regime_filter: risk_on
+  description: >
+    Stock gaps up 5%+ pre-market on a real catalyst (earnings beat, FDA approval,
+    major contract win). Buy the breakout when price holds the gap during the
+    first 15–30 minutes of trading. The gap itself signals institutional urgency —
+    momentum players pile in when it holds. Risk-Off regime reduces size by 50%.
+  entry_trigger:
+    - gap_pct_min: 5
+    - catalyst_present: true              # earnings / news / FDA / guidance
+    - gap_holds_minutes: 15               # doesn't fill the gap in first 15 min
+    - volume_ratio_min: 2.0               # volume at least 2× 20-day avg by 10am
+    - float_max_shares: 50000000          # avoid very large floats — slower movers
+  entry_method: "Break of 15-min opening range high after gap holds"
+  stop_rule: "Below pre-market low (or prior day close if tighter)"
+  target_rule: "Prior all-time high or nearest resistance level"
+  min_rr: 2.0
+  max_size_pct: 0.015
+  paper_first: false
+  notes: "Do NOT chase if gap has already run 15%+ before entry. Catalyst quality matters — rumors vs confirmed news."
+
+- setup_name: "News Catalyst Momentum"
+  category: momentum
+  style: "Momentum · Long"
+  difficulty: beginner
+  holding_period: "1 to 4 days"
+  regime_filter: risk_on
+  description: >
+    Company announces a significant positive development during market hours or
+    pre-market — partnership, product launch, analyst upgrade with conviction,
+    regulatory approval. Price breaks to 3-month high on heavy volume.
+    Hold for continuation as news spreads across retail and institutional desks.
+  entry_trigger:
+    - news_catalyst_type: ["partnership", "product_launch", "analyst_upgrade", "approval", "guidance_raise"]
+    - price_break_3month_high: true
+    - volume_ratio_min: 2.5
+    - market_cap_min: 500000000           # avoid sub-$500M — too thin
+  entry_method: "Buy break of 3-month high on volume; wait for first 5-min candle to close above"
+  stop_rule: "Below the breakout level (prior 3-month high becomes support)"
+  target_rule: "Measured move (breakout level + height of base) or next major resistance"
+  min_rr: 2.0
+  max_size_pct: 0.015
+  paper_first: false
+  notes: "Avoid upgrades from small, unknown analysts. Best when company hasn't moved in weeks."
+
+- setup_name: "Short Squeeze Setup"
+  category: momentum
+  style: "Momentum · Long (Squeeze)"
+  difficulty: advanced
+  holding_period: "1 to 5 days"
+  regime_filter: any
+  description: >
+    High short interest (>20% of float) meets a positive catalyst. Shorts are forced
+    to cover, accelerating the move. This creates violent, fast moves that can
+    overshoot fundamentals significantly. Exit before the squeeze exhausts —
+    the move reverses sharply. Do not hold through a squeeze for "fundamentals."
+  entry_trigger:
+    - short_float_pct_min: 20             # at least 20% of float short
+    - days_to_cover_min: 3               # at least 3 days to cover
+    - catalyst_present: true
+    - gap_pct_min: 3
+    - volume_ratio_min: 3.0
+  entry_method: "Buy the initial break — do not wait for pullback on squeeze setups"
+  stop_rule: "Below pre-market low — tight stop, these move fast in both directions"
+  target_rule: "Scale out: 1/3 at 1R, 1/3 at 2R, trail remainder"
+  min_rr: 2.5
+  max_size_pct: 0.010                     # smaller size — higher volatility
+  paper_first: true
+  notes: "Never add to a losing squeeze position. These can reverse 30% in minutes."
+
+- setup_name: "Sector Rotation Momentum"
+  category: momentum
+  style: "Momentum · Macro-Driven"
+  difficulty: intermediate
+  holding_period: "1 to 4 weeks"
+  regime_filter: risk_on
+  description: >
+    The macro cycle has shifted and a new sector is being rotated into by
+    institutional money. The sector ETF is breaking to a 3-month high.
+    Buy the leading individual stock in the sector — it will outperform the ETF
+    as capital concentrates in the winners.
+  entry_trigger:
+    - sector_etf_break_3month_high: true  # XLK, XLF, XLV, XLE etc.
+    - sector_cycle_alignment: overweight  # Portfolio Manager cycle says OW this sector
+    - stock_rs_rank_in_sector_min: 80    # stock in top 20% of sector by relative strength
+    - volume_ratio_min: 1.5
+  entry_method: "Buy stock on first pullback after sector ETF breakout (1–3 days)"
+  stop_rule: "Below the pullback low or sector ETF support level"
+  target_rule: "Prior 52-week high or measured move from sector ETF breakout"
+  min_rr: 2.0
+  max_size_pct: 0.020
+  paper_first: false
+  notes: "Confirm sector rotation with Portfolio Manager macro cycle view before entry."
+
+# ─────────────────────────────────────────────────────────────
+# CATEGORY 2: MEAN REVERSION
+# ─────────────────────────────────────────────────────────────
+
+- setup_name: "Morning Gap Fade"
+  category: mean_reversion
+  style: "Mean Reversion · Short"
+  difficulty: intermediate
+  holding_period: "Same day"
+  regime_filter: any
+  description: >
+    Stock gaps up 5–10% pre-market on weak or rumor-based news — no hard catalyst,
+    analyst note rather than official PR, or reaction to a competitor's move.
+    The gap is likely to fade as early buyers take profits and no new buyers appear.
+    Short into the gap exhaustion in the first 30–60 minutes.
+  entry_trigger:
+    - gap_pct_min: 5
+    - gap_pct_max: 15                     # avoid true gap-and-go territory
+    - catalyst_quality: ["analyst_note", "social_buzz", "sympathy_gap", "rumor"]
+    - volume_ratio_min: 1.5
+    - price_rejection_at_resistance: true  # ideally reverses at a known level
+    - gap_fill_probability: high          # stock has history of filling gaps
+  entry_method: "Short when 15-min candle fails and closes below the open; wait for confirmation"
+  stop_rule: "Above the pre-market high (hard stop)"
+  target_rule: "Prior day close (gap fill) as primary target"
+  min_rr: 1.5
+  max_size_pct: 0.010
+  paper_first: true
+  notes: "Do NOT short true gap-and-go setups. Confirm catalyst is weak before fading."
+
+- setup_name: "Mean Reversion Short — RSI Exhaustion"
+  category: mean_reversion
+  style: "Mean Reversion · Short"
+  difficulty: advanced
+  holding_period: "2 to 7 days"
+  regime_filter: any
+  description: >
+    Stock has run 20–40% in a short window (5–10 trading days) without a meaningful
+    pullback. RSI > 80 on the daily. Volume is declining on up days — distribution.
+    No upcoming catalyst to sustain the move. Short the exhaustion and ride the
+    mean reversion back to the 20-day or 50-day MA.
+  entry_trigger:
+    - price_move_pct_10days_min: 20       # up 20%+ in 10 days
+    - rsi_daily_min: 80
+    - volume_declining_on_up_days: true
+    - no_catalyst_within_days: 5          # no earnings/FDA etc. in the next 5 days
+    - price_at_resistance: true           # ideally hitting prior high or round number
+  entry_method: "Short when daily candle shows a topping pattern (shooting star, bearish engulfing)"
+  stop_rule: "Above the recent swing high (usually 3–5% above entry)"
+  target_rule: "20-day MA as primary; 50-day MA as stretch target"
+  min_rr: 2.0
+  max_size_pct: 0.010
+  paper_first: true
+  notes: "Dangerous in strong uptrends. Best in late-cycle or risk-off conditions. Never short into earnings."
+
+- setup_name: "Sympathy Selloff Reversal"
+  category: mean_reversion
+  style: "Mean Reversion · Long"
+  difficulty: intermediate
+  holding_period: "2 to 10 days"
+  regime_filter: risk_on
+  description: >
+    A peer company misses earnings or gets bad news. The entire sector sells off
+    in sympathy. But the company you're watching had nothing to do with the miss —
+    different business model, different customer base, different geography.
+    Buy the unjustified selloff. The market will correct the mistake within days.
+  entry_trigger:
+    - peer_negative_catalyst: true        # peer missed / bad news
+    - target_stock_sympathy_selloff_pct_min: 4   # sold off 4%+ without company-specific news
+    - target_stock_fundamentals_intact: true      # no company-specific bad news
+    - target_stock_oasis_score_min: 60            # Oasis quality score confirms quality
+    - target_stock_above_200ma: true              # in a long-term uptrend
+  entry_method: "Buy end of day or next morning open after confirming no company-specific news"
+  stop_rule: "Below the day's low (if the selloff continues, the thesis is wrong)"
+  target_rule: "Prior close before the sympathy selloff began"
+  min_rr: 1.5
+  max_size_pct: 0.020
+  paper_first: false
+  notes: "Check company-specific news thoroughly before entry. This is the BAC/XLF dip-buy archetype."
+
+- setup_name: "Oversold Bounce — 200MA Reclaim"
+  category: mean_reversion
+  style: "Mean Reversion · Long"
+  difficulty: beginner
+  holding_period: "3 to 14 days"
+  regime_filter: risk_on
+  description: >
+    Quality stock pulls back to the 200-day moving average on sector rotation or
+    broader market weakness — not company-specific bad news. The 200MA is a major
+    institutional support level. Large funds that missed the move use this level
+    to enter. Buy the test, stop below the MA.
+  entry_trigger:
+    - price_at_200ma: true                # within 2% of 200-day MA
+    - company_no_bad_news: true
+    - rsi_daily_max: 40                   # oversold condition
+    - oasis_score_min: 55                 # fundamental quality confirmed
+    - volume_declining_on_selloff: true   # selling is exhausting, not accelerating
+  entry_method: "Buy at 200MA with limit order; can scale in over 2–3 days if it holds"
+  stop_rule: "Daily close below 200MA (not just an intraday pierce)"
+  target_rule: "50-day MA or prior resistance; trail stop after 10% gain"
+  min_rr: 2.0
+  max_size_pct: 0.025                     # more size — cleaner setup with defined level
+  paper_first: false
+  notes: "This is a core LT entry setup. Integrates directly with Portfolio Manager dislocation scanner."
+
+# ─────────────────────────────────────────────────────────────
+# CATEGORY 3: OPTIONS
+# ─────────────────────────────────────────────────────────────
+
+- setup_name: "Pre-Event Straddle — SPX / Stock"
+  category: options
+  style: "Options · Volatility Long"
+  difficulty: advanced
+  holding_period: "1 to 5 days (through event)"
+  regime_filter: any
+  description: >
+    Buy an at-the-money straddle (call + put, same strike) before a known binary
+    event: FOMC meeting, CPI release, major earnings, FDA ruling. You profit if
+    the move is larger than the implied move priced into the options. Best when
+    IV is historically cheap relative to realized volatility around that event.
+  entry_trigger:
+    - event_type: ["FOMC", "CPI", "earnings", "FDA_binary", "NFP"]
+    - days_to_event_max: 3
+    - iv_rank_max: 50                     # IV not already expensive (< 50th percentile)
+    - implied_move_vs_historical_move: cheap   # implied move < avg historical move for this event
+  entry_method: "Buy ATM straddle 2–3 days before event; avoid buying day-of (IV inflated)"
+  stop_rule: "Straddle loses 30% of premium paid (time decay kill switch)"
+  target_rule: "Sell immediately after event — do NOT hold through IV crush"
+  min_rr: 1.5
+  max_size_pct: 0.010                     # options — smaller risk %
+  paper_first: true
+  notes: "Exit within 1 hour of event. IV crush destroys value even if directional move is correct."
+
+- setup_name: "IV Crush Iron Condor"
+  category: options
+  style: "Options · Volatility Short"
+  difficulty: advanced
+  holding_period: "1 to 7 days (post-event)"
+  regime_filter: any
+  description: >
+    After a major event (earnings release, FOMC), IV collapses. Sell an iron condor
+    (sell OTM call and put, buy further OTM for protection) to collect the elevated
+    premium. Profit if the stock stays within a defined range as IV declines.
+    Best in high-IV stocks after a binary event has resolved.
+  entry_trigger:
+    - event_just_passed: true             # earnings/FDA/FOMC resolved
+    - iv_rank_min: 70                     # IV still elevated post-event
+    - stock_expected_range: defined       # condor wings outside expected move
+    - no_catalyst_within_days: 14         # no upcoming events to re-expand IV
+  entry_method: "Enter condor same day as event resolution, within first hour"
+  stop_rule: "Close entire spread if short strikes are breached (usually 2× premium received)"
+  target_rule: "Close at 50% of max profit (don't get greedy — risk/reward degrades near expiry)"
+  min_rr: 0.5                             # defined-risk spread; expectancy is in frequency
+  max_size_pct: 0.008
+  paper_first: true
+  notes: "Never hold to expiry. Time decay accelerates but gamma risk spikes."
+
+- setup_name: "Cash-Secured Put Entry (CSP Wheel)"
+  category: options
+  style: "Options · Premium Selling"
+  difficulty: intermediate
+  holding_period: "14 to 45 days per cycle"
+  regime_filter: risk_on
+  description: >
+    Sell a put at a strike you'd be happy to own the stock at. Collect premium.
+    If the stock stays above strike, keep premium and repeat. If assigned,
+    own the stock at an effective cost basis below market price, then sell covered
+    calls against it. The Wheel: CSP → assignment → covered calls → repeat.
+    Best on quality stocks you want to own long-term.
+  entry_trigger:
+    - oasis_score_min: 65                 # quality stock you'd be happy to own
+    - iv_rank_min: 30                     # some IV to make premium worthwhile
+    - strike_delta_max: 0.30              # OTM put, delta ≤ 0.30
+    - days_to_expiry: [21, 45]            # 21–45 DTE sweet spot for theta decay
+    - stock_above_200ma: true
+    - no_earnings_before_expiry: true     # avoid earnings risk on the put
+  entry_method: "Sell put at 0.20–0.30 delta, 21–45 DTE, on a quality dip or neutral day"
+  stop_rule: "Roll down and out if breached by 5% or more (don't take assignment on bad stocks)"
+  target_rule: "Close at 50% of premium received; repeat cycle"
+  min_rr: 1.0
+  max_size_pct: 0.025                     # larger — defined max loss at strike
+  paper_first: false
+  notes: "This is a long-term passive income strategy. Works best in stable to bullish conditions."
+
+- setup_name: "Covered Call Income"
+  category: options
+  style: "Options · Premium Selling"
+  difficulty: beginner
+  holding_period: "14 to 30 days per cycle"
+  regime_filter: any
+  description: >
+    Own 100 shares of a quality stock. Sell an OTM call against the position to
+    collect premium. Reduces cost basis over time. If called away at the strike,
+    sell the stock at a profit plus keep the premium. Best on stocks trading
+    sideways or in mild uptrends.
+  entry_trigger:
+    - shares_owned_min: 100               # must own shares to sell covered call
+    - iv_rank_min: 25
+    - strike_delta_max: 0.30
+    - days_to_expiry: [14, 30]
+    - stock_not_approaching_earnings: true
+  entry_method: "Sell call at 0.20–0.30 delta on a day when stock has moved up (higher premium)"
+  stop_rule: "Buy back call if it reaches 2× premium received (cap the loss)"
+  target_rule: "Close at 50% of premium received or hold to expiry if OTM"
+  min_rr: 0.8
+  max_size_pct: 0.030
+  paper_first: false
+  notes: "Selling at earnings is high-risk/high-reward — usually better to close before earnings."
+
+# ─────────────────────────────────────────────────────────────
+# CATEGORY 4: EVENT-DRIVEN
+# ─────────────────────────────────────────────────────────────
+
+- setup_name: "Earnings Gap Hold"
+  category: event_driven
+  style: "Event · Long"
+  difficulty: intermediate
+  holding_period: "2 to 5 days"
+  regime_filter: risk_on
+  description: >
+    Stock beats earnings on EPS and revenue and raises guidance. It gaps up 5%+
+    pre-market and holds the gap during the first 30 minutes of trading.
+    Rather than chasing the gap, wait for a Day 2 pullback to a logical level
+    and buy the continuation. Institutions who missed the move buy the dip.
+  entry_trigger:
+    - earnings_beat: true                 # beat on EPS and Revenue
+    - guidance: raised
+    - gap_pct_min: 5
+    - gap_holds_minutes: 30               # gap not filled in first 30 min
+    - volume_ratio_min: 2.0
+  entry_method: "Day 2 pullback to VWAP or 15-min opening range low of gap day"
+  stop_rule: "Below the gap day's low — if gap fills, thesis broken"
+  target_rule: "Prior all-time high or measured move"
+  min_rr: 2.0
+  max_size_pct: 0.020
+  paper_first: false
+  notes: "Don't buy the gap on Day 1. Wait for Day 2 pullback. The best earnings plays consolidate and continue."
+
+- setup_name: "Guidance Miss Fade"
+  category: event_driven
+  style: "Event · Short"
+  difficulty: intermediate
+  holding_period: "1 to 3 days"
+  regime_filter: any
+  description: >
+    Company beats on past earnings but cuts future guidance. Stock often gets
+    a dead-cat bounce after the initial selloff as value buyers step in.
+    Short the bounce — the guidance cut signals deteriorating business
+    conditions that will take multiple quarters to resolve.
+  entry_trigger:
+    - earnings_guidance: cut              # future guidance reduced
+    - initial_gap_down_pct_min: 5
+    - dead_cat_bounce_pct: [3, 15]        # bounces 3–15% off the low before fading
+    - volume_declining_on_bounce: true    # bounce is weak — low conviction
+  entry_method: "Short the bounce when it stalls at a clear resistance level (prior day close, VWAP)"
+  stop_rule: "Above the bounce high (usually prior close)"
+  target_rule: "Retest of the gap-down low; stretch to prior major support"
+  min_rr: 1.5
+  max_size_pct: 0.010
+  paper_first: true
+  notes: "Confirm the bounce is genuine first — don't short into continued selling."
+
+- setup_name: "Index Rebalancing Dip"
+  category: event_driven
+  style: "Event · Long"
+  difficulty: intermediate
+  holding_period: "1 to 5 days"
+  regime_filter: any
+  description: >
+    A stock is removed from a major index (S&P 500, Russell 2000, etc.) or
+    a new rebalancing event causes mechanical, non-fundamental selling.
+    Index funds must sell regardless of price — this creates a temporary
+    artificial dip in an otherwise healthy company. Buy the mechanical selloff
+    and hold for the bounce as the forced selling completes.
+  entry_trigger:
+    - index_rebalancing_event: true       # confirmed addition/removal event
+    - selloff_is_mechanical: true         # no new fundamental bad news
+    - oasis_score_min: 55
+    - volume_spike_on_selloff: true       # high volume = forced selling completing
+    - price_drop_pct_min: 5              # meaningful dip created
+  entry_method: "Buy at close on the day of peak selling (volume spike day)"
+  stop_rule: "Below the day's low — if it continues next day, exit"
+  target_rule: "Recovery to pre-announcement price over 1–5 days"
+  min_rr: 1.5
+  max_size_pct: 0.020
+  paper_first: false
+  notes: "Time-sensitive. Research the rebalancing date carefully. Selling completes on a known schedule."
+
+# ─────────────────────────────────────────────────────────────
+# CATEGORY 5: TECHNICAL
+# ─────────────────────────────────────────────────────────────
+
+- setup_name: "VWAP Reclaim"
+  category: technical
+  style: "Technical · Intraday/Swing"
+  difficulty: beginner
+  holding_period: "Same day to 2 days"
+  regime_filter: any
+  description: >
+    Stock opens below VWAP or gets flushed below VWAP during the trading day,
+    then reclaims VWAP on volume. The reclaim signals that buyers are in control
+    and the flush was a shakeout. VWAP is a key institutional benchmark — when
+    price moves back above it, institutions that were holding back start buying.
+  entry_trigger:
+    - price_below_vwap: true              # stock flushed below VWAP
+    - vwap_reclaim_candle: true           # 5-min candle closes above VWAP
+    - volume_above_average_on_reclaim: true
+    - flush_size_pct_min: 2              # meaningful flush before reclaim
+  entry_method: "Buy the close of the first 5-min candle that closes above VWAP on volume"
+  stop_rule: "Below VWAP and the flush low (if it fails, it really fails)"
+  target_rule: "Prior high of day or resistance; often 1–2% above VWAP"
+  min_rr: 1.5
+  max_size_pct: 0.015
+  paper_first: false
+  notes: "Best in morning sessions (9:30–11:30 ET). Afternoon VWAP reclaims are less reliable."
+
+- setup_name: "Breakout Continuation"
+  category: technical
+  style: "Technical · Swing"
+  difficulty: beginner
+  holding_period: "3 to 14 days"
+  regime_filter: risk_on
+  description: >
+    Stock has been consolidating in a tight range (inside bars, flat base) for
+    5–20 days after a prior move. It then breaks out of the range on expanding
+    volume. The consolidation is the coiled spring. The breakout is the release.
+    Buy the breakout and hold for the next leg up.
+  entry_trigger:
+    - consolidation_days_min: 5
+    - consolidation_range_pct_max: 8     # tight range — less than 8% wide
+    - breakout_above_range_high: true
+    - volume_ratio_min: 1.5              # volume expands on breakout
+    - no_major_overhead_resistance: true
+  entry_method: "Buy the breakout candle when it closes above the range high on volume"
+  stop_rule: "Below the range high (breakdown = failed breakout)"
+  target_rule: "Measured move: add the range height to the breakout level"
+  min_rr: 2.0
+  max_size_pct: 0.020
+  paper_first: false
+  notes: "Failed breakouts are fast and painful. Respect the stop. The setup recurs — wait for the next one."
+
+- setup_name: "Opening Range Breakout (ORB)"
+  category: technical
+  style: "Technical · Intraday"
+  difficulty: beginner
+  holding_period: "Same day"
+  regime_filter: any
+  description: >
+    The first 15 or 30 minutes of trading defines the Opening Range (high and low).
+    When price breaks above or below that range on volume, it often trends in
+    that direction for the rest of the day. Simple, mechanical, and repeatable.
+    Best on stocks with a catalyst that day (earnings, news) or during trending markets.
+  entry_trigger:
+    - opening_range_minutes: 30           # use 15 or 30 minute ORB
+    - breakout_of_range: true
+    - volume_at_breakout_ratio_min: 1.5
+    - market_trending_day: true           # SPY is moving directionally, not choppy
+  entry_method: "Buy break above ORB high (long) or sell break below ORB low (short)"
+  stop_rule: "Back inside the opening range (3 candles back in = stop out)"
+  target_rule: "1× the opening range height added to the breakout point"
+  min_rr: 1.5
+  max_size_pct: 0.015
+  paper_first: false
+  notes: "Skip ORB on choppy, low-volume, indecisive market days. Works best on trend days."
+
+- setup_name: "Support/Resistance Bounce"
+  category: technical
+  style: "Technical · Swing"
+  difficulty: beginner
+  holding_period: "2 to 7 days"
+  regime_filter: risk_on
+  description: >
+    Stock pulls back to a well-defined prior support level — a level that has
+    acted as support or resistance multiple times in the past. The more times
+    a level has been tested and held, the more significant it is. Buy the test
+    of support; sell if support breaks cleanly.
+  entry_trigger:
+    - price_at_prior_support: true        # within 1–2% of a defined support level
+    - support_tested_times_min: 2         # level has held at least twice before
+    - no_company_specific_bad_news: true
+    - rsi_daily_max: 45                   # stock is not overbought into support
+    - volume_declining_on_approach: true  # selling pressure fading as support nears
+  entry_method: "Limit buy at support level; can split into 2 tranches over 1–2 days"
+  stop_rule: "Daily close below support level"
+  target_rule: "Prior swing high or the level it came from"
+  min_rr: 2.0
+  max_size_pct: 0.025
+  paper_first: false
+  notes: "The cleaner (more distinct) the support level, the more reliable the bounce."

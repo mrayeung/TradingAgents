@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Oasis Terminal — MCD Buy the Dip Analysis</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0d0f14; color: #e2e8f0; font-family: 'SF Pro Display', -apple-system, sans-serif; font-size: 14px; }
+
+  .header { background: linear-gradient(135deg, #0f1623 0%, #111827 100%); border-bottom: 1px solid #1e293b; padding: 20px 28px; display: flex; justify-content: space-between; align-items: center; }
+  .header-left h1 { font-size: 13px; color: #64748b; text-transform: uppercase; letter-spacing: 1.5px; }
+  .header-left h2 { font-size: 26px; font-weight: 700; color: #f1f5f9; margin-top: 2px; }
+  .header-left h2 span { color: #f59e0b; }
+  .header-meta { font-size: 12px; color: #475569; margin-top: 4px; }
+  .header-right { text-align: right; }
+  .price-main { font-size: 32px; font-weight: 700; color: #ef4444; }
+  .price-change { font-size: 15px; color: #ef4444; margin-top: 2px; }
+  .price-label { font-size: 11px; color: #475569; margin-top: 3px; }
+
+  .alert-banner { background: #1c1108; border: 1px solid #92400e; border-left: 4px solid #f59e0b; padding: 12px 20px; margin: 16px 20px; border-radius: 6px; display: flex; align-items: center; gap: 12px; }
+  .alert-banner .icon { font-size: 18px; }
+  .alert-banner strong { color: #fbbf24; font-size: 13px; }
+  .alert-banner p { color: #92400e; font-size: 12px; color: #d97706; margin-top: 2px; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 0 20px 20px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; padding: 0 20px; margin-bottom: 16px; }
+  .grid-full { padding: 0 20px; margin-bottom: 16px; }
+
+  .card { background: #111827; border: 1px solid #1e293b; border-radius: 10px; padding: 18px; }
+  .card-title { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 14px; display: flex; align-items: center; gap: 6px; }
+  .card-title::before { content: ''; width: 3px; height: 12px; border-radius: 2px; background: #3b82f6; display: inline-block; }
+
+  .metric-row { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 1px solid #1e293b; }
+  .metric-row:last-child { border-bottom: none; }
+  .metric-label { color: #64748b; font-size: 12px; }
+  .metric-value { font-size: 13px; font-weight: 600; color: #f1f5f9; }
+  .metric-value.red { color: #ef4444; }
+  .metric-value.green { color: #22c55e; }
+  .metric-value.yellow { color: #f59e0b; }
+  .metric-value.blue { color: #60a5fa; }
+
+  .ma-bar { margin-top: 10px; }
+  .ma-track { background: #1e293b; border-radius: 4px; height: 8px; position: relative; margin: 6px 0; }
+  .ma-fill { height: 8px; border-radius: 4px; }
+  .ma-label { display: flex; justify-content: space-between; font-size: 11px; color: #64748b; }
+
+  /* 5-Gate Scorecard */
+  .gate { background: #0f1623; border: 1px solid #1e293b; border-radius: 8px; padding: 14px 16px; margin-bottom: 10px; display: flex; align-items: flex-start; gap: 14px; }
+  .gate-badge { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; margin-top: 2px; }
+  .gate-badge.pass { background: #052e16; border: 1px solid #166534; }
+  .gate-badge.fail { background: #450a0a; border: 1px solid #991b1b; }
+  .gate-badge.warn { background: #1c1108; border: 1px solid #92400e; }
+  .gate-content { flex: 1; }
+  .gate-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .gate-title { font-size: 13px; font-weight: 600; color: #f1f5f9; }
+  .gate-label { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .gate-label.pass { background: #052e16; color: #4ade80; border: 1px solid #166534; }
+  .gate-label.warn { background: #1c1108; color: #fbbf24; border: 1px solid #92400e; }
+  .gate-label.fail { background: #450a0a; color: #f87171; border: 1px solid #991b1b; }
+  .gate-body { font-size: 12px; color: #94a3b8; line-height: 1.6; }
+  .gate-body strong { color: #cbd5e1; }
+
+  /* Oasis Score */
+  .oasis-score-card { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); border: 1px solid #312e81; border-radius: 10px; padding: 22px; display: flex; align-items: center; gap: 24px; margin-bottom: 16px; }
+  .score-circle { width: 96px; height: 96px; border-radius: 50%; background: conic-gradient(#6366f1 0% 68%, #1e1b4b 68% 100%); display: flex; align-items: center; justify-content: center; flex-shrink: 0; position: relative; }
+  .score-inner { width: 72px; height: 72px; border-radius: 50%; background: #0f172a; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .score-number { font-size: 26px; font-weight: 800; color: #818cf8; line-height: 1; }
+  .score-denom { font-size: 11px; color: #4338ca; }
+  .score-breakdown { flex: 1; }
+  .score-breakdown h3 { font-size: 16px; font-weight: 700; color: #c7d2fe; margin-bottom: 2px; }
+  .score-breakdown .verdict { font-size: 13px; color: #818cf8; margin-bottom: 14px; }
+  .score-bar { margin-bottom: 8px; }
+  .score-bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .score-bar-label { width: 90px; font-size: 11px; color: #64748b; }
+  .score-bar-track { flex: 1; background: #1e293b; border-radius: 3px; height: 6px; }
+  .score-bar-fill { height: 6px; border-radius: 3px; }
+  .score-bar-val { width: 32px; font-size: 11px; color: #94a3b8; text-align: right; }
+
+  /* Tranche Table */
+  .tranche-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+  .tranche-table th { font-size: 11px; color: #64748b; text-align: left; padding: 8px 12px; border-bottom: 1px solid #1e293b; text-transform: uppercase; letter-spacing: 0.5px; }
+  .tranche-table td { padding: 10px 12px; border-bottom: 1px solid #0f172a; font-size: 13px; }
+  .tranche-table tr:last-child td { border-bottom: none; }
+  .tranche-table tr.active-row td { background: #0c1a0c; }
+  .tranche-table tr.active-row td:first-child { border-left: 3px solid #22c55e; }
+  .tranche-chip { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; }
+  .t1 { background: #052e16; color: #4ade80; border: 1px solid #166534; }
+  .t2 { background: #1c1108; color: #fbbf24; border: 1px solid #78350f; }
+  .t3 { background: #0c0a09; color: #94a3b8; border: 1px solid #292524; }
+  .stop-row td { color: #f87171 !important; }
+  .stop-row { background: #1a0808; }
+  .now-badge { display: inline-block; background: #1d4ed8; color: #93c5fd; font-size: 10px; padding: 2px 6px; border-radius: 3px; margin-left: 6px; }
+
+  /* Decision Banner */
+  .decision { border-radius: 10px; padding: 18px 22px; margin: 0 20px 20px; display: flex; align-items: center; gap: 18px; }
+  .decision.buy { background: #052e16; border: 1px solid #166534; }
+  .decision-icon { font-size: 28px; }
+  .decision-text h3 { font-size: 15px; font-weight: 700; color: #4ade80; }
+  .decision-text p { font-size: 12px; color: #86efac; margin-top: 4px; line-height: 1.5; }
+
+  .footnote { padding: 14px 20px; font-size: 11px; color: #334155; border-top: 1px solid #1e293b; text-align: center; }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="header-left">
+    <h1>Oasis Terminal · Buy the Dip Module</h1>
+    <h2><span>MCD</span> — McDonald's Corporation</h2>
+    <div class="header-meta">NYSE · Consumer Cyclical (Restaurants) · Analysis Date: September 24, 2026</div>
+  </div>
+  <div class="header-right">
+    <div class="price-main">$238.32</div>
+    <div class="price-change">▼ -12.03 (-4.81%) · Today</div>
+    <div class="price-label">52W Range: $234.04 — $341.75 &nbsp;|&nbsp; At 52-Week LOW</div>
+  </div>
+</div>
+
+<!-- ALERT BANNER -->
+<div class="alert-banner">
+  <div class="icon">⚡</div>
+  <div>
+    <strong>CATALYST: Investor Day Selloff · Sep 24, 2026</strong>
+    <p>MCD announced $8.5B multiyear capex program + guided flat traffic near term. Market sold the news on 3.5× average volume (16.5M vs 4.7M avg). Stock touched 52-week intraday low of $234.04. The business is not impaired — this is a market reaction to forward guidance delivery.</p>
+  </div>
+</div>
+
+<!-- METRICS ROW -->
+<div class="grid-3">
+  <div class="card">
+    <div class="card-title">Technical Snapshot</div>
+    <div class="metric-row"><span class="metric-label">Close</span><span class="metric-value red">$238.32</span></div>
+    <div class="metric-row"><span class="metric-label">Day's Low (52W Low)</span><span class="metric-value red">$234.04</span></div>
+    <div class="metric-row"><span class="metric-label">52W High</span><span class="metric-value">$341.75</span></div>
+    <div class="metric-row"><span class="metric-label">Off 52W High</span><span class="metric-value red">−30.3%</span></div>
+    <div class="metric-row"><span class="metric-label">Volume (vs Avg)</span><span class="metric-value yellow">16.5M (3.5×)</span></div>
+    <div class="metric-row"><span class="metric-label">Est. 200-Day MA</span><span class="metric-value">~$300</span></div>
+    <div class="metric-row"><span class="metric-label">% Below 200MA</span><span class="metric-value red">~−20%</span></div>
+    <div class="metric-row"><span class="metric-label">RSI (est.)</span><span class="metric-value yellow">~28 (Oversold)</span></div>
+    <div class="ma-bar" style="margin-top:10px;">
+      <div class="ma-label"><span style="color:#64748b">$200</span><span style="color:#64748b">$300 (200MA est.)</span><span style="color:#64748b">$342</span></div>
+      <div class="ma-track">
+        <!-- price at $238 on $200-$342 scale = (238-200)/(342-200) = 38/142 = 26.8% -->
+        <div class="ma-fill" style="width:26.8%; background: linear-gradient(to right, #ef4444, #f59e0b);"></div>
+      </div>
+      <div style="font-size:11px; color:#ef4444; margin-top:3px;">Price ($238) well below 200MA (est. ~$300)</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Fundamental Quality</div>
+    <div class="metric-row"><span class="metric-label">Revenue TTM</span><span class="metric-value">$27.7B (+6.9% YoY)</span></div>
+    <div class="metric-row"><span class="metric-label">Operating Income TTM</span><span class="metric-value">$12.66B</span></div>
+    <div class="metric-row"><span class="metric-label">Net Income TTM</span><span class="metric-value">$8.79B</span></div>
+    <div class="metric-row"><span class="metric-label">EBITDA TTM</span><span class="metric-value">$15.08B</span></div>
+    <div class="metric-row"><span class="metric-label">FCF TTM</span><span class="metric-value green">$6.26B</span></div>
+    <div class="metric-row"><span class="metric-label">Operating Margin</span><span class="metric-value green">45.7%</span></div>
+    <div class="metric-row"><span class="metric-label">Profit Margin</span><span class="metric-value green">31.7%</span></div>
+    <div class="metric-row"><span class="metric-label">ROA</span><span class="metric-value">13.25%</span></div>
+    <div class="metric-row"><span class="metric-label">Dividend (Yield)</span><span class="metric-value blue">$7.72 (3.24%)</span></div>
+    <div class="metric-row"><span class="metric-label">EPS TTM</span><span class="metric-value">$12.32</span></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Valuation vs History</div>
+    <div class="metric-row"><span class="metric-label">PE TTM</span><span class="metric-value green">19.3× <small style="color:#64748b">(hist. 22–28×)</small></span></div>
+    <div class="metric-row"><span class="metric-label">EV/EBITDA (est.)</span><span class="metric-value green">~13.8× <small style="color:#64748b">(hist. 20–25×)</small></span></div>
+    <div class="metric-row"><span class="metric-label">FCF Yield</span><span class="metric-value">3.71%</span></div>
+    <div class="metric-row"><span class="metric-label">Div Yield</span><span class="metric-value blue">3.24% <small style="color:#64748b">(hist. ~2.5%)</small></span></div>
+    <div class="metric-row"><span class="metric-label">Market Cap</span><span class="metric-value">$168.6B</span></div>
+    <div class="metric-row"><span class="metric-label">Beta</span><span class="metric-value">0.41</span></div>
+    <div class="metric-row"><span class="metric-label">Analyst Avg Target</span><span class="metric-value blue">$307.70</span></div>
+    <div class="metric-row"><span class="metric-label">Upside to Target</span><span class="metric-value green">+29.1%</span></div>
+    <div class="metric-row"><span class="metric-label">Latest Rating</span><span class="metric-value">UBS Buy, PT $320</span></div>
+    <div class="metric-row"><span class="metric-label">Next Earnings</span><span class="metric-value">~Nov 5, 2026</span></div>
+  </div>
+</div>
+
+<!-- 5-GATE ANALYSIS -->
+<div class="grid-full">
+  <div class="card">
+    <div class="card-title">Buy the Dip · 5-Gate Qualification</div>
+
+    <!-- Gate 1: WHY -->
+    <div class="gate">
+      <div class="gate-badge pass">✓</div>
+      <div class="gate-content">
+        <div class="gate-header">
+          <div class="gate-title">Gate 1 · WHY — Cause of Selloff</div>
+          <div class="gate-label pass">PASS</div>
+        </div>
+        <div class="gate-body">
+          Today's −4.81% move is an <strong>investor day reaction</strong>, not a fundamental impairment. MCD disclosed a $8.5B multi-year capex program and guided for flat near-term traffic — both were communicated poorly relative to consensus expectations. The sell-side interpreted this as a margin compression signal. However: <strong>the business model is unchanged</strong> — franchise royalties and owned real estate continue to generate $6.26B in annual FCF. No earnings miss. No fraud. No loss of market share beyond already-known consumer softness. This is a sympathy-adjacent selloff caused by management communication on a discretionary capex commitment that doesn't change long-term earnings power. <strong>Dislocation type: Guidance-driven selloff on a quality compounder.</strong>
+        </div>
+      </div>
+    </div>
+
+    <!-- Gate 2: VALUATION -->
+    <div class="gate">
+      <div class="gate-badge pass">✓</div>
+      <div class="gate-content">
+        <div class="gate-header">
+          <div class="gate-title">Gate 2 · VALUATION — Is the Stock Cheap vs History?</div>
+          <div class="gate-label pass">PASS</div>
+        </div>
+        <div class="gate-body">
+          MCD is trading at its cheapest absolute and relative valuation in years. PE of <strong>19.3× vs historical 22–28×</strong> represents a significant discount. EV/EBITDA of ~13.8× compares to a historical norm of 20–25× — this alone implies ~40% upside just to reach mid-range historical multiples. Dividend yield of <strong>3.24% vs historical ~2.5%</strong>: historically, MCD yields above 3% have been exceptional buy signals. FCF yield of 3.71% on a low-beta, franchise-model business with global footprint is compelling. Analyst consensus target of $307.70 implies +29% upside. At current price, MCD is pricing in significant permanent impairment that the fundamentals do not support.
+        </div>
+      </div>
+    </div>
+
+    <!-- Gate 3: TECHNICAL -->
+    <div class="gate">
+      <div class="gate-badge warn">!</div>
+      <div class="gate-content">
+        <div class="gate-header">
+          <div class="gate-title">Gate 3 · TECHNICAL — Defined Support & Risk/Reward</div>
+          <div class="gate-label warn">CONDITIONAL PASS</div>
+        </div>
+        <div class="gate-body">
+          MCD hit its 52-week low ($234.04) intraday today on 3.5× average volume — a potential capitulation signal, but the price action is ambiguous. The stock is trading <strong>~$60+ below its estimated 200-day MA (~$300)</strong> — a deep extension that historically resolves with a mean-reversion bounce in a high-quality name. Risk/reward is defined: <strong>Entry $238 / Stop: weekly close below $230 / T1 Target: $270 (prior consolidation) / T2: $295 (200MA) = R:R of 4:1 to 7:1.</strong> Caution: today's candle is a breakdown on heavy volume. Do NOT chase here. Wait for a stabilization candle (inside day or small-body close above $240) to confirm selling exhaustion before initiating T1. If MCD closes below $234 on a weekly basis, the technical picture deteriorates and risk increases.
+        </div>
+      </div>
+    </div>
+
+    <!-- Gate 4: MACRO -->
+    <div class="gate">
+      <div class="gate-badge warn">!</div>
+      <div class="gate-content">
+        <div class="gate-header">
+          <div class="gate-title">Gate 4 · MACRO — Does the Cycle Favor This?</div>
+          <div class="gate-label warn">CONDITIONAL PASS</div>
+        </div>
+        <div class="gate-body">
+          Current macro environment is complex. S&P down −0.75% today, VIX at 15.18, Oil up 2.4% (inflationary), broader market risk-off tone. Oasis macro regime: <strong>Late Cycle / Inflation-Elevated</strong>. This is not ideal for Consumer Cyclical broadly. However, MCD is a special case: <strong>(1) franchise model = ~80% revenue is royalty/rent income, largely recession-resistant;</strong> (2) MCD is the VALUE option in QSR — consumers trade down TO McDonald's during stress; (3) low beta of 0.41 means macro volatility doesn't hit MCD as hard as pure cyclical names; (4) sticky inflation does pressure company-owned restaurant margins but the franchise model insulates the P&amp;L. The $8.5B capex is for franchisee support and digital — long-term tailwinds. Macro headwind is real but not disqualifying for a franchise-model compounder. <strong>Size-reduce by 25% vs standard allocation given macro.</strong>
+        </div>
+      </div>
+    </div>
+
+    <!-- Gate 5: POSITION -->
+    <div class="gate">
+      <div class="gate-badge pass">✓</div>
+      <div class="gate-content">
+        <div class="gate-header">
+          <div class="gate-title">Gate 5 · POSITION — Account Routing & Sizing</div>
+          <div class="gate-label pass">PASS</div>
+        </div>
+        <div class="gate-body">
+          <strong>Routing: IRA preferred</strong> for this name. Dividend yield of 3.24% in a taxable account creates drag (qualified but still ~15–20% tax); in an IRA, dividends compound tax-free and this becomes an exceptional hold. If buying in taxable, account for the dividend schedule (next ex-div Dec 1, 2026 at $1.93/share). <strong>Position sizing: Tranche model.</strong> Do not deploy full position into today's weakness — the technical picture calls for staged entries. T1 at current levels (25% of intended position) as a starter, with T2 and T3 reserved for deeper dips or confirmed stabilization. This is a <strong>Portfolio Manager allocation (long-term hold)</strong>, not a Trading Desk scalp — route to the Portfolio Manager track with a 6–18 month hold horizon and set a cost-basis target of $235–250 blended. Stop: exit if fundamentals deteriorate (not price action alone — this is a quality-hold).
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- OASIS SCORE -->
+<div style="padding: 0 20px; margin-bottom: 16px;">
+  <div class="oasis-score-card">
+    <div class="score-circle">
+      <div class="score-inner">
+        <div class="score-number">68</div>
+        <div class="score-denom">/100</div>
+      </div>
+    </div>
+    <div class="score-breakdown">
+      <h3>Oasis Score: 68 / 100 — Attractive Entry with Conditions</h3>
+      <div class="verdict">Buy with staged tranche entry · 3 of 5 gates clear, 2 conditional</div>
+      <div class="score-bar-row"><span class="score-bar-label">Valuation</span><div class="score-bar-track"><div class="score-bar-fill" style="width:75%; background:#22c55e;"></div></div><span class="score-bar-val" style="color:#22c55e;">75</span></div>
+      <div class="score-bar-row"><span class="score-bar-label">Quality</span><div class="score-bar-track"><div class="score-bar-fill" style="width:85%; background:#22c55e;"></div></div><span class="score-bar-val" style="color:#22c55e;">85</span></div>
+      <div class="score-bar-row"><span class="score-bar-label">Technical</span><div class="score-bar-track"><div class="score-bar-fill" style="width:45%; background:#f59e0b;"></div></div><span class="score-bar-val" style="color:#f59e0b;">45</span></div>
+      <div class="score-bar-row"><span class="score-bar-label">Macro</span><div class="score-bar-track"><div class="score-bar-fill" style="width:55%; background:#f59e0b;"></div></div><span class="score-bar-val" style="color:#f59e0b;">55</span></div>
+      <div class="score-bar-row"><span class="score-bar-label">Dislocation</span><div class="score-bar-track"><div class="score-bar-fill" style="width:70%; background:#60a5fa;"></div></div><span class="score-bar-val" style="color:#60a5fa;">70</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- TRANCHE PLAN -->
+<div class="grid-full">
+  <div class="card">
+    <div class="card-title">Tranche Entry Plan</div>
+    <table class="tranche-table">
+      <thead>
+        <tr>
+          <th>Tranche</th>
+          <th>Entry Level</th>
+          <th>Condition</th>
+          <th>Size</th>
+          <th>Risk (per $50K acct, 0.75%)</th>
+          <th>Stop</th>
+          <th>T1 Target</th>
+          <th>T2 Target</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="active-row">
+          <td><span class="tranche-chip t1">T1</span><span class="now-badge">NOW</span></td>
+          <td><strong>$235–242</strong></td>
+          <td>Stabilization candle after today's flush (inside day or +1% recovery)</td>
+          <td>25% of position</td>
+          <td>$375 / ~17–18 shares</td>
+          <td>$230 weekly close</td>
+          <td>$270 (+12%)</td>
+          <td>$295–300 (+23%)</td>
+        </tr>
+        <tr>
+          <td><span class="tranche-chip t2">T2</span></td>
+          <td><strong>$220–228</strong></td>
+          <td>Market-wide selloff or continuation below $234 on high volume</td>
+          <td>35% of position</td>
+          <td>$375 / ~21–22 shares</td>
+          <td>$215 weekly close</td>
+          <td>$260 (+15%)</td>
+          <td>$300 (+33%)</td>
+        </tr>
+        <tr>
+          <td><span class="tranche-chip t3">T3</span></td>
+          <td><strong>$205–215</strong></td>
+          <td>Capitulation flush on macro event; fundamentals still intact</td>
+          <td>40% of position</td>
+          <td>$375 / ~25 shares</td>
+          <td>$200 (10-yr support)</td>
+          <td>$250 (+18%)</td>
+          <td>$300 (+40%)</td>
+        </tr>
+        <tr class="stop-row">
+          <td colspan="2"><strong>⛔ EXIT CONDITION</strong></td>
+          <td colspan="6">If MCD closes below $200 on weekly basis, OR if fundamental thesis breaks (material FCF decline, franchise model disruption, debt covenant issue) — exit regardless of price action</td>
+        </tr>
+      </tbody>
+    </table>
+    <div style="margin-top:14px; padding: 12px; background:#0f172a; border-radius:6px; font-size:12px; color:#64748b; line-height:1.6;">
+      <strong style="color:#94a3b8;">Blended cost basis target:</strong> $225–240 over all 3 tranches ·
+      <strong style="color:#94a3b8;">Account routing:</strong> IRA preferred (dividend reinvestment, no dividend drag) ·
+      <strong style="color:#94a3b8;">Hold horizon:</strong> 6–18 months (Portfolio Manager track) ·
+      <strong style="color:#94a3b8;">Risk discipline:</strong> Each tranche individually risk-managed; macro size reduction of 25% applied given Late Cycle regime
+    </div>
+  </div>
+</div>
+
+<!-- DECISION -->
+<div class="decision buy">
+  <div class="decision-icon">🟢</div>
+  <div class="decision-text">
+    <h3>DECISION: INITIATE T1 POSITION — After Stabilization Confirmation</h3>
+    <p>MCD passes 3 of 5 gates cleanly (WHY, VALUATION, POSITION) with 2 conditional passes (TECHNICAL, MACRO). The quality of this franchise is exceptional — $6.26B FCF, 45.7% operating margin, dividend yield at historical highs. The selloff catalyst is management communication, not fundamental impairment. Do NOT buy into today's falling knife — wait for a stabilization candle (tomorrow or next few sessions showing an inside day or bounce). T1 target: $235–242. Route to IRA. Size reduced 25% for macro regime. Set T2 at $220–228 as a GTC limit order after T1 is filled.</p>
+  </div>
+</div>
+
+<div class="footnote">
+  Oasis Terminal · MCD Analysis · September 24, 2026 · Data: Yahoo Finance · For informational purposes only — not financial advice. All entries subject to market conditions at time of execution.
+</div>
+
+</body>
+</html>

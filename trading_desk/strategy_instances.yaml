@@ -1,0 +1,289 @@
+# Oasis Trading Desk — Strategy Instance Configuration
+# Version: 0.1
+#
+# Each entry is a RUNNING STRATEGY — a configured deployment of a template.
+# The scanner reads this file on schedule, finds matching setups,
+# and generates trade proposals for human review.
+#
+# Template → user configures → Instance → scanner runs → proposals → journal → analytics
+#
+# ─────────────────────────────────────────────────────────────
+# FIELD GUIDE
+# ─────────────────────────────────────────────────────────────
+# INPUT (what you deploy):
+#   capital_allocated:      Max dollar exposure for this strategy at any time
+#   risk_per_trade_pct:     % of total account to risk per trade (loss if stop hit)
+#   risk_per_trade_dollars: Computed from risk_per_trade_pct × account_size (auto)
+#   max_concurrent_trades:  Max open positions in this strategy simultaneously
+#   min_setup_score:        Don't propose trades scoring below this (0–100)
+#   regime_gate:            'risk_on_only' | 'any' — block in risk-off if set
+#   size_reduction_risk_off: Multiplier applied to size when regime = risk_off (e.g. 0.5)
+#
+# OUTPUT (what you expect / track):
+#   target_rr:              Minimum reward-to-risk ratio to take the trade
+#   upside_target_method:   How the target is set for each trade
+#   downside_stop_method:   How the stop is set for each trade
+#   expected_win_rate:      Your prior belief in % (platform tracks actual vs this)
+#   expected_expectancy:    Expected R per trade = win_rate × avg_win − loss_rate × avg_loss
+#
+# AUTOMATION:
+#   scan_schedule:          When the scanner runs for this strategy
+#   alert_on_match:         Notify immediately when a qualifying setup is found
+#   auto_size:              Auto-calculate share count from risk/stop (always true MVP)
+#   status:                 active | paused | paper (paper = track but don't execute)
+# ─────────────────────────────────────────────────────────────
+
+strategy_instances:
+
+  # ── INSTANCE 1 ────────────────────────────────────────────
+  - instance_id: "gap_go_01"
+    template: "Morning Gap & Go"
+    label: "Gap & Go — Main"
+    status: active
+
+    # INPUT
+    capital_allocated: 12000          # max $12K in open positions for this strategy
+    risk_per_trade_pct: 0.50          # risk 0.5% of account per trade = ~$241
+    max_concurrent_trades: 2          # max 2 gap plays open at once
+    min_setup_score: 70               # only high-quality setups (score ≥ 70)
+    regime_gate: risk_on_only         # pause strategy automatically in risk-off
+    size_reduction_risk_off: 0.50     # not applicable (gated), but fallback if overridden
+
+    # OUTPUT
+    target_rr: 2.0                    # minimum 2:1 R:R to take the trade
+    upside_target_method: prior_resistance   # scanner identifies nearest resistance
+    downside_stop_method: below_premarket_low
+    expected_win_rate: 60             # 60% win rate expectation
+    expected_expectancy: 0.80         # 0.8R per trade expected
+
+    # AUTOMATION
+    scan_schedule:
+      type: pre_market_daily
+      run_at: "08:15 ET"              # runs before market open every trading day
+      days: [Mon, Tue, Wed, Thu, Fri]
+    alert_on_match: true
+    auto_size: true
+
+    # LIVE TRACKING (updated by trade journal)
+    _actual_win_rate: 64              # tracked: 14 wins / 22 trades
+    _actual_expectancy: 0.92          # better than expected
+    _trades_taken: 22
+    _pnl_mtd: 1840                    # month-to-date P&L in $
+    _last_scan: "2026-09-24 08:15 ET"
+    _next_scan: "2026-09-25 08:15 ET"
+
+  # ── INSTANCE 2 ────────────────────────────────────────────
+  - instance_id: "earn_gap_01"
+    template: "Earnings Gap Hold"
+    label: "Earnings Gap Hold — Day2 Entry"
+    status: active
+
+    # INPUT
+    capital_allocated: 15000
+    risk_per_trade_pct: 0.75          # slightly more risk — cleaner setup
+    max_concurrent_trades: 2
+    min_setup_score: 75               # high bar — earnings setups need to be clean
+    regime_gate: risk_on_only
+    size_reduction_risk_off: 0.50
+
+    # OUTPUT
+    target_rr: 2.0
+    upside_target_method: prior_all_time_high
+    downside_stop_method: below_gap_day_low
+    expected_win_rate: 62
+    expected_expectancy: 0.95
+
+    # AUTOMATION
+    scan_schedule:
+      type: earnings_calendar_driven  # runs the day after each earnings report
+      run_at: "07:30 ET"             # pre-market day after earnings release
+      trigger: earnings_release       # fires when earnings detected, not just time-based
+    alert_on_match: true
+    auto_size: true
+
+    # LIVE TRACKING
+    _actual_win_rate: 71
+    _actual_expectancy: 1.20
+    _trades_taken: 14
+    _pnl_mtd: 2240
+    _last_scan: "2026-09-24 07:30 ET"
+    _next_scan: "Next earnings in watchlist"
+
+  # ── INSTANCE 3 ────────────────────────────────────────────
+  - instance_id: "sympathy_01"
+    template: "Sympathy Selloff Reversal"
+    label: "Sympathy Reversal — Quality Stocks"
+    status: active
+
+    # INPUT
+    capital_allocated: 10000
+    risk_per_trade_pct: 0.50
+    max_concurrent_trades: 1          # one at a time — requires research to confirm
+    min_setup_score: 65
+    regime_gate: risk_on_only
+    size_reduction_risk_off: 0.50
+
+    # OUTPUT
+    target_rr: 1.5
+    upside_target_method: prior_close_before_selloff
+    downside_stop_method: below_day_low
+    expected_win_rate: 65
+    expected_expectancy: 0.60
+
+    # AUTOMATION
+    scan_schedule:
+      type: intraday_event_driven     # fires when peer company earnings miss detected
+      run_at: "continuous"           # monitors all day during earnings season
+      trigger: peer_earnings_miss     # peer selloff > 5% → scan for sympathy victims
+    alert_on_match: true
+    auto_size: true
+
+    # LIVE TRACKING
+    _actual_win_rate: 50
+    _actual_expectancy: 0.20          # underperforming — watch this setup
+    _trades_taken: 8
+    _pnl_mtd: -160
+    _last_scan: "2026-09-24 Continuous"
+    _next_scan: "Continuous"
+
+  # ── INSTANCE 4 ────────────────────────────────────────────
+  - instance_id: "csp_wheel_01"
+    template: "Cash-Secured Put Wheel"
+    label: "CSP Wheel — Quality Dividend Names"
+    status: active
+
+    # INPUT
+    capital_allocated: 20000          # larger allocation — premium selling needs capital
+    risk_per_trade_pct: 2.50          # risk = strike price × shares (defined max loss)
+    max_concurrent_trades: 4          # can run 4 CSPs simultaneously
+    min_setup_score: 60
+    regime_gate: any                  # runs in any regime (premium selling benefits from high IV)
+    size_reduction_risk_off: 1.0      # don't reduce — high IV in risk-off is actually good
+
+    # OUTPUT
+    target_rr: 1.0                    # premium selling: 50% of max profit target
+    upside_target_method: collect_full_premium   # keep premium if expires OTM
+    downside_stop_method: roll_down_and_out      # roll if breached by 5%
+    expected_win_rate: 78             # high win rate, smaller wins
+    expected_expectancy: 0.40         # lower R but very consistent
+
+    # AUTOMATION
+    scan_schedule:
+      type: weekly
+      run_at: "Monday 09:45 ET"      # scan for new CSP candidates each Monday
+      also_run_at: "Thursday 15:30 ET"  # check existing positions near expiry
+    alert_on_match: true
+    auto_size: true
+
+    # LIVE TRACKING
+    _actual_win_rate: 82
+    _actual_expectancy: 0.45
+    _trades_taken: 18
+    _pnl_mtd: 920
+    _last_scan: "2026-09-22 09:45 ET"
+    _next_scan: "2026-09-26 Thursday 15:30 ET"
+
+  # ── INSTANCE 5 (PAPER) ────────────────────────────────────
+  - instance_id: "breakout_paper_01"
+    template: "Breakout Continuation"
+    label: "Breakout — Paper Testing"
+    status: paper                     # PAPER MODE: scan, score, log — no real execution
+
+    # INPUT
+    capital_allocated: 10000          # hypothetical capital for paper tracking
+    risk_per_trade_pct: 0.50
+    max_concurrent_trades: 3
+    min_setup_score: 65
+    regime_gate: risk_on_only
+    size_reduction_risk_off: 0.50
+
+    # OUTPUT
+    target_rr: 2.0
+    upside_target_method: measured_move   # base height added to breakout level
+    downside_stop_method: below_range_high  # prior resistance becomes support
+    expected_win_rate: 55
+    expected_expectancy: 0.60
+
+    # AUTOMATION
+    scan_schedule:
+      type: pre_market_daily
+      run_at: "08:30 ET"
+      days: [Mon, Tue, Wed, Thu, Fri]
+    alert_on_match: true
+    auto_size: true
+    paper_since: "2026-09-01"
+    promote_to_live_after_trades: 30  # suggest going live after 30 paper trades
+
+    # LIVE TRACKING
+    _actual_win_rate: 48              # below expected — still gathering data
+    _actual_expectancy: 0.15
+    _trades_taken: 11
+    _pnl_mtd: 420                    # hypothetical P&L
+    _last_scan: "2026-09-24 08:30 ET"
+    _next_scan: "2026-09-25 08:30 ET"
+
+  # ── INSTANCE 6 (PAUSED) ───────────────────────────────────
+  - instance_id: "rsi_short_01"
+    template: "RSI Exhaustion Short"
+    label: "RSI Short — Paused (Risk-Off)"
+    status: paused
+    paused_reason: "Current regime Risk-On — shorting into momentum is low-probability"
+    paused_since: "2026-09-10"
+
+    # INPUT
+    capital_allocated: 8000
+    risk_per_trade_pct: 0.50
+    max_concurrent_trades: 1
+    min_setup_score: 75               # very high bar for shorting
+    regime_gate: risk_on_only         # this paused it automatically
+    size_reduction_risk_off: 0.50
+
+    # OUTPUT
+    target_rr: 2.0
+    upside_target_method: na_short   # profit taken going down
+    downside_stop_method: above_swing_high
+    expected_win_rate: 52
+    expected_expectancy: 0.50
+
+    # AUTOMATION
+    scan_schedule:
+      type: pre_market_daily
+      run_at: "08:15 ET"
+      auto_resume_on_regime_change: true   # auto-resume when regime shifts risk-off
+    alert_on_match: false            # paused — no alerts
+
+    # LIVE TRACKING
+    _actual_win_rate: 45             # challenging — needs more data
+    _actual_expectancy: 0.10
+    _trades_taken: 6
+    _pnl_mtd: 0
+    _last_scan: "2026-09-10"
+    _next_scan: "Paused — resumes on Risk-Off regime"
+
+# ─────────────────────────────────────────────────────────────
+# SCAN SCHEDULE TYPES
+# ─────────────────────────────────────────────────────────────
+# pre_market_daily:       Runs every trading day at configured time
+# earnings_calendar_driven: Fires day after each earnings release in watchlist
+# intraday_event_driven:  Continuous monitoring; triggers on specific market events
+# weekly:                 Runs once per week (or twice, if two times configured)
+# monthly:                Once per month (e.g. 1st Monday)
+#
+# UPSIDE TARGET METHODS
+# ─────────────────────────────────────────────────────────────
+# prior_resistance:         Nearest prior resistance level identified by scanner
+# prior_all_time_high:      Prior ATH as primary target
+# measured_move:            Base/range height added to breakout level
+# prior_close_before_event: Close before the catalyst event
+# collect_full_premium:     Options-specific: full premium received
+# fixed_rr:                 Entry + (stop_distance × target_rr)
+#
+# DOWNSIDE STOP METHODS
+# ─────────────────────────────────────────────────────────────
+# below_premarket_low:      Stop below the pre-market low
+# below_gap_day_low:        Stop below the gap day's intraday low
+# below_day_low:            Stop below current day's low
+# below_range_high:         Prior breakout level (now support) becomes stop
+# above_swing_high:         For shorts: stop above the most recent swing high
+# below_200ma:              Stop on daily close below 200-day MA
+# roll_down_and_out:        Options: roll the strike if breached by 5%+
